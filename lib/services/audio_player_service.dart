@@ -57,6 +57,12 @@ class AudioPlayerService {
   Future<void> pause() => _player.pause();
   Future<void> togglePlayPause() => _player.togglePlayPause();
 
+  /// Sets playback volume, normalized to [0.0, 1.0] regardless of backend.
+  /// (media_kit uses 0-100, just_audio uses 0.0-1.0; the abstraction hides
+  /// that difference.)
+  Future<void> setVolume(double volume) =>
+      _player.setVolume(volume.clamp(0.0, 1.0));
+
   Future<void> seek(Duration position) {
     final dur = duration;
     final clamped = position.isNegative
@@ -96,6 +102,7 @@ abstract class StreamingBackend {
   Future<void> pause();
   Future<void> togglePlayPause();
   Future<void> seek(Duration position);
+  Future<void> setVolume(double volume);
 }
 
 class MediaKitStreaming implements StreamingBackend {
@@ -136,6 +143,9 @@ class MediaKitStreaming implements StreamingBackend {
 
   @override
   Future<void> seek(Duration position) => _player.seek(position);
+
+  @override
+  Future<void> setVolume(double volume) => _player.setVolume(volume * 100);
 }
 
 class JustAudioStreaming implements StreamingBackend {
@@ -181,4 +191,7 @@ class JustAudioStreaming implements StreamingBackend {
 
   @override
   Future<void> seek(Duration position) => _player.seek(position);
+
+  @override
+  Future<void> setVolume(double volume) => _player.setVolume(volume);
 }

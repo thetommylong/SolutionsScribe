@@ -5,6 +5,7 @@ import '../providers/app_state_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import 'playback_controls.dart';
+import 'volume_control.dart';
 import 'wavy_seek_bar.dart';
 
 class PlaybackBar extends ConsumerWidget {
@@ -107,7 +108,10 @@ class PlaybackBar extends ConsumerWidget {
               ),
             ),
           ),
-          // Right: playback controls
+          const SizedBox(width: 4),
+          // Right: volume + playback controls
+          const VolumeControl(),
+          const SizedBox(width: 4),
           PlaybackControls(
             isPlaying: isPlaying,
             onPlayPause: () => audioService.togglePlayPause(),

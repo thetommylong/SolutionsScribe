@@ -49,7 +49,9 @@ class TranscriptView extends ConsumerWidget {
 
 /// Live progress banner shown while transcription runs in the background. The
 /// phase/percent come from the transcription service's callbacks and update
-/// in place; the banner is announced to screen readers via a live region.
+/// in place; progress is conveyed by the determinate ring + percent label
+/// (never baked into the phase string). The banner is announced to screen
+/// readers via a live region.
 class _TranscribingBanner extends ConsumerWidget {
   const _TranscribingBanner();
 
@@ -58,22 +60,37 @@ class _TranscribingBanner extends ConsumerWidget {
     final phase = ref.watch(appStateProvider.select((s) => s.phase));
     final percent = ref.watch(appStateProvider.select((s) => s.percent));
 
-    final String message;
-    if (phase != null && phase != 'Transcribing…') {
-      message = phase;
-    } else if (percent > 0) {
-      message = 'Transcribing… $percent%';
-    } else {
-      message = 'Transcribing…';
-    }
+    final label = phase ?? 'Transcribing…';
+    // Same determinate/indeterminate idiom as the upload dropzone's progress
+    // ring: a value is a 0-1 progress fraction when we have one.
+    final ring = SizedBox(
+      width: 12,
+      height: 12,
+      child: CircularProgressIndicator(
+        strokeWidth: 2,
+        value: percent > 0 ? percent / 100 : null,
+        color: mochaMauve,
+      ),
+    );
+    final percentText = percent > 0
+        ? Text(
+            '$percent%',
+            style: const TextStyle(
+              color: mochaMauve,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          )
+        : null;
 
     return Semantics(
       liveRegion: true,
-      label: message,
+      label: label,
       child: _StatusBanner(
-        message: message,
+        message: label,
         color: mochaMauve,
-        showSpinner: true,
+        leading: ring,
+        trailing: percentText,
       ),
     );
   }
@@ -82,12 +99,14 @@ class _TranscribingBanner extends ConsumerWidget {
 class _StatusBanner extends StatelessWidget {
   final String message;
   final Color color;
-  final bool showSpinner;
+  final Widget? leading;
+  final Widget? trailing;
 
   const _StatusBanner({
     required this.message,
     required this.color,
-    this.showSpinner = false,
+    this.leading,
+    this.trailing,
   });
 
   @override
@@ -98,15 +117,8 @@ class _StatusBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Row(
         children: [
-          if (showSpinner) ...[
-            SizedBox(
-              width: 10,
-              height: 10,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: color,
-              ),
-            ),
+          if (leading != null) ...[
+            leading!,
             const SizedBox(width: 8),
           ],
           Expanded(
@@ -119,6 +131,10 @@ class _StatusBanner extends StatelessWidget {
               ),
             ),
           ),
+          if (trailing != null) ...[
+            const SizedBox(width: 8),
+            trailing!,
+          ],
         ],
       ),
     );

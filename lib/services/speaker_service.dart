@@ -257,7 +257,6 @@ class SpeakerService {
         'downloading $_modelFileName');
     onPhase?.call('Downloading speaker model…');
     await _downloadWithProgress(modelFile, onProgress: (pct) {
-      onPhase?.call('Downloading speaker model… $pct%');
       onProgress?.call(pct);
     });
 

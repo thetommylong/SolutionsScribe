@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/app_state_provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/volume_provider.dart';
 import 'settings_dialog.dart';
 
 /// App-global keyboard shortcuts for playback and navigation.
@@ -55,6 +56,16 @@ class AppShortcuts extends ConsumerWidget {
             if (_hasEditableFocus(context)) return;
             _skip(context, ref, forward: true, shift: false);
           },
+          // Up/down: adjust volume. Always volume (never list scroll), to keep
+          // the shortcut predictable — see plan/decision.
+          const SingleActivator(LogicalKeyboardKey.arrowUp): () {
+            if (_hasEditableFocus(context)) return;
+            _adjustVolume(context, ref, delta: 0.1);
+          },
+          const SingleActivator(LogicalKeyboardKey.arrowDown): () {
+            if (_hasEditableFocus(context)) return;
+            _adjustVolume(context, ref, delta: -0.1);
+          },
           const SingleActivator(LogicalKeyboardKey.keyH, control: true): () {
             _toggleTranscript(ref);
           },
@@ -82,6 +93,16 @@ class AppShortcuts extends ConsumerWidget {
   static void _toggleTranscript(WidgetRef ref) {
     final notifier = ref.read(transcriptVisibleProvider.notifier);
     notifier.state = !ref.read(transcriptVisibleProvider);
+  }
+
+  static void _adjustVolume(
+    BuildContext context,
+    WidgetRef ref, {
+    required double delta,
+  }) {
+    final stage = ref.read(appStateProvider).stage;
+    if (stage != AppStage.ready) return;
+    ref.read(volumeProvider.notifier).adjust(delta);
   }
 
   static void _skip(

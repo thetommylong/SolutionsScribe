@@ -161,7 +161,6 @@ class TranscriptionService {
     debugPrint('$_logTag model MISSING at $modelPath — downloading');
     onPhase?.call('Downloading Whisper model…');
     await _downloadModelWithProgress(model, modelFile, onProgress: (pct) {
-      onPhase?.call('Downloading Whisper model… $pct%');
       onProgress?.call(pct);
     });
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'components/app_shortcuts.dart';
+import 'components/osd_overlay.dart';
 import 'providers/app_state_provider.dart';
 import 'theme/app_theme.dart';
 import 'views/transcript_view.dart';
@@ -38,6 +39,13 @@ class AppShell extends ConsumerWidget {
         view = const UploadView();
     }
 
-    return AppShortcuts(child: view);
+    return AppShortcuts(
+      child: Stack(
+        children: [
+          view,
+          const Positioned.fill(child: OsdOverlay()),
+        ],
+      ),
+    );
   }
 }
