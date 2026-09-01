@@ -30,11 +30,7 @@ class TranscriptView extends ConsumerWidget {
             },
           ),
           if (isTranscribing)
-            const _StatusBanner(
-              message: 'Transcribing… this may take a moment',
-              color: mochaMauve,
-              showSpinner: true,
-            ),
+            const _TranscribingBanner(),
           if (transcribeError != null)
             _StatusBanner(
               message: 'Transcription failed: $transcribeError',
@@ -46,6 +42,38 @@ class TranscriptView extends ConsumerWidget {
             const Expanded(child: SizedBox.shrink()),
           const PlaybackBar(),
         ],
+      ),
+    );
+  }
+}
+
+/// Live progress banner shown while transcription runs in the background. The
+/// phase/percent come from the transcription service's callbacks and update
+/// in place; the banner is announced to screen readers via a live region.
+class _TranscribingBanner extends ConsumerWidget {
+  const _TranscribingBanner();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final phase = ref.watch(appStateProvider.select((s) => s.phase));
+    final percent = ref.watch(appStateProvider.select((s) => s.percent));
+
+    final String message;
+    if (phase != null && phase != 'Transcribing…') {
+      message = phase;
+    } else if (percent > 0) {
+      message = 'Transcribing… $percent%';
+    } else {
+      message = 'Transcribing…';
+    }
+
+    return Semantics(
+      liveRegion: true,
+      label: message,
+      child: _StatusBanner(
+        message: message,
+        color: mochaMauve,
+        showSpinner: true,
       ),
     );
   }
