@@ -9,9 +9,12 @@ import 'settings_dialog.dart';
 
 /// App-global keyboard shortcuts for playback and navigation.
 ///
-/// Wraps its child in a [Focus] + [CallbackShortcuts] so keys work wherever
-/// the user is, unless focus is inside a text field (so typing in the settings
-/// duration fields isn't hijacked by, e.g., Space or arrow keys).
+/// Wraps its child in a [CallbackShortcuts] whose internal [Focus] owns the
+/// key handling. Key events only reach it while keyboard focus is somewhere
+/// within its subtree, so the autofocusing [Focus] must be *inside* the
+/// shortcuts (an autofocus node above them would swallow the events before
+/// the bindings run). Typing in a text field (settings duration fields) is not
+/// hijacked because those run their own handlers / are guarded explicitly.
 class AppShortcuts extends ConsumerWidget {
   final Widget child;
 
@@ -25,62 +28,53 @@ class AppShortcuts extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Focus(
-      autofocus: true,
-      child: CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.space): () {
-            if (_hasEditableFocus(context)) return;
-            _togglePlayPause(context, ref);
-          },
-          // Shift+left/right: snap to previous / next transcript part.
-          const SingleActivator(
-            LogicalKeyboardKey.arrowLeft,
-            shift: true,
-          ): () {
-            if (_hasEditableFocus(context)) return;
-            _snapToPart(context, ref, forward: false);
-          },
-          const SingleActivator(
-            LogicalKeyboardKey.arrowRight,
-            shift: true,
-          ): () {
-            if (_hasEditableFocus(context)) return;
-            _snapToPart(context, ref, forward: true);
-          },
-          const SingleActivator(LogicalKeyboardKey.arrowLeft): () {
-            if (_hasEditableFocus(context)) return;
-            _skip(context, ref, forward: false, shift: false);
-          },
-          const SingleActivator(LogicalKeyboardKey.arrowRight): () {
-            if (_hasEditableFocus(context)) return;
-            _skip(context, ref, forward: true, shift: false);
-          },
-          // Up/down: adjust volume. Always volume (never list scroll), to keep
-          // the shortcut predictable — see plan/decision.
-          const SingleActivator(LogicalKeyboardKey.arrowUp): () {
-            if (_hasEditableFocus(context)) return;
-            _adjustVolume(context, ref, delta: 0.1);
-          },
-          const SingleActivator(LogicalKeyboardKey.arrowDown): () {
-            if (_hasEditableFocus(context)) return;
-            _adjustVolume(context, ref, delta: -0.1);
-          },
-          const SingleActivator(LogicalKeyboardKey.keyH, control: true): () {
-            _toggleTranscript(ref);
-          },
-          const SingleActivator(LogicalKeyboardKey.keyH, meta: true): () {
-            _toggleTranscript(ref);
-          },
-          const SingleActivator(LogicalKeyboardKey.comma, control: true): () {
-            _openSettings(context);
-          },
-          const SingleActivator(LogicalKeyboardKey.comma, meta: true): () {
-            _openSettings(context);
-          },
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.space): () {
+          if (_hasEditableFocus(context)) return;
+          _togglePlayPause(context, ref);
         },
-        child: child,
-      ),
+        // Shift+left/right: snap to previous / next transcript part.
+        const SingleActivator(LogicalKeyboardKey.arrowLeft, shift: true): () {
+          if (_hasEditableFocus(context)) return;
+          _snapToPart(context, ref, forward: false);
+        },
+        const SingleActivator(LogicalKeyboardKey.arrowRight, shift: true): () {
+          if (_hasEditableFocus(context)) return;
+          _snapToPart(context, ref, forward: true);
+        },
+        const SingleActivator(LogicalKeyboardKey.arrowLeft): () {
+          if (_hasEditableFocus(context)) return;
+          _skip(context, ref, forward: false, shift: false);
+        },
+        const SingleActivator(LogicalKeyboardKey.arrowRight): () {
+          if (_hasEditableFocus(context)) return;
+          _skip(context, ref, forward: true, shift: false);
+        },
+        // Up/down: adjust volume. Always volume (never list scroll), to keep
+        // the shortcut predictable — see plan/decision.
+        const SingleActivator(LogicalKeyboardKey.arrowUp): () {
+          if (_hasEditableFocus(context)) return;
+          _adjustVolume(context, ref, delta: 0.1);
+        },
+        const SingleActivator(LogicalKeyboardKey.arrowDown): () {
+          if (_hasEditableFocus(context)) return;
+          _adjustVolume(context, ref, delta: -0.1);
+        },
+        const SingleActivator(LogicalKeyboardKey.keyH, control: true): () {
+          _toggleTranscript(ref);
+        },
+        const SingleActivator(LogicalKeyboardKey.keyH, meta: true): () {
+          _toggleTranscript(ref);
+        },
+        const SingleActivator(LogicalKeyboardKey.comma, control: true): () {
+          _openSettings(context);
+        },
+        const SingleActivator(LogicalKeyboardKey.comma, meta: true): () {
+          _openSettings(context);
+        },
+      },
+      child: Focus(autofocus: true, child: child),
     );
   }
 
@@ -107,11 +101,13 @@ class AppShortcuts extends ConsumerWidget {
 
   static void _skip(
     BuildContext context,
-    WidgetRef ref,
-    {required bool forward, required bool shift}) {
-    final seconds = ref.read(forward
-        ? skipForwardSecondsProvider
-        : skipBackSecondsProvider);
+    WidgetRef ref, {
+    required bool forward,
+    required bool shift,
+  }) {
+    final seconds = ref.read(
+      forward ? skipForwardSecondsProvider : skipBackSecondsProvider,
+    );
     final audio = ref.read(audioPlayerServiceProvider);
     if (forward) {
       audio.skipForward(Duration(seconds: seconds));
@@ -158,9 +154,6 @@ class AppShortcuts extends ConsumerWidget {
   }
 
   static void _openSettings(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (_) => const SettingsDialog(),
-    );
+    showDialog<void>(context: context, builder: (_) => const SettingsDialog());
   }
 }
