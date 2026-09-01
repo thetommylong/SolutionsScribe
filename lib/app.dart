@@ -1,0 +1,39 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'providers/app_state_provider.dart';
+import 'theme/app_theme.dart';
+import 'views/transcript_view.dart';
+import 'views/upload_view.dart';
+
+class SolutionsScribeApp extends StatelessWidget {
+  const SolutionsScribeApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'SolutionsScribe',
+      debugShowCheckedModeBanner: false,
+      theme: AppTheme.mocha,
+      home: const AppShell(),
+    );
+  }
+}
+
+class AppShell extends ConsumerWidget {
+  const AppShell({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final stage = ref.watch(appStateProvider.select((s) => s.stage));
+
+    switch (stage) {
+      case AppStage.ready:
+        return const TranscriptView();
+      case AppStage.idle:
+      case AppStage.processing:
+      case AppStage.error:
+        return const UploadView();
+    }
+  }
+}
