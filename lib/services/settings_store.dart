@@ -18,7 +18,6 @@ class SettingsStore {
 
   SettingsStore({String? supportDirOverride})
       : _supportDirOverride = supportDirOverride;
-
   Future<String> _supportDir() async =>
       _supportDirOverride ?? (await getApplicationSupportDirectory()).path;
 

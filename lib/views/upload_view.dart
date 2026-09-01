@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../components/model_ack_dialog.dart';
 import '../components/settings_dialog.dart';
 import '../components/upload_dropzone.dart';
-import '../providers/app_state_provider.dart';
 import '../theme/app_theme.dart';
 
 class UploadView extends ConsumerWidget {
@@ -12,25 +10,11 @@ class UploadView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final model = ref.watch(selectedModelProvider);
-
     return Scaffold(
       backgroundColor: mochaBase,
       body: Stack(
         children: [
-          Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const UploadDropzone(),
-                const SizedBox(height: 20),
-                _ModelSelector(
-                  current: model,
-                  onChanged: (value) => requestModelChange(ref, context, value),
-                ),
-              ],
-            ),
-          ),
+          const Center(child: UploadDropzone()),
           // Settings cog, top-right corner.
           Positioned(
             top: 12,
@@ -88,38 +72,3 @@ class _SettingsButtonState extends State<_SettingsButton> {
   }
 }
 
-class _ModelSelector extends StatelessWidget {
-  final String current;
-  final ValueChanged<String> onChanged;
-
-  const _ModelSelector({required this.current, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Text(
-          'Whisper model:',
-          style: TextStyle(color: mochaSubtext0, fontSize: 13),
-        ),
-        const SizedBox(width: 8),
-        DropdownButton<String>(
-          value: current,
-          dropdownColor: mochaSurface0,
-          style: const TextStyle(color: mochaText, fontSize: 13),
-          underline: const SizedBox.shrink(),
-          items: availableModels
-              .map((m) => DropdownMenuItem(
-                    value: m,
-                    child: Text(m),
-                  ))
-              .toList(),
-          onChanged: (v) {
-            if (v != null) onChanged(v);
-          },
-        ),
-      ],
-    );
-  }
-}

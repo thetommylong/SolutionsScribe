@@ -21,6 +21,18 @@ class PlaybackBar extends ConsumerWidget {
     final duration =
         ref.watch(audioDurationProvider).value ?? track?.duration ?? Duration.zero;
     final isPlaying = ref.watch(audioPlayingProvider).value ?? false;
+    final parts = ref.watch(appStateProvider.select((s) => s.parts));
+    final totalMs = duration.inMilliseconds;
+    final markers = totalMs <= 0
+        ? const <double>[]
+        : (parts
+                .map((p) => p.segments.isEmpty
+                    ? null
+                    : (p.segments.first.fromTs.inMilliseconds / totalMs)
+                        .clamp(0.0, 1.0))
+                .whereType<double>()
+                .toList()
+              ..sort());
 
     return Container(
       height: 64,
@@ -90,6 +102,7 @@ class PlaybackBar extends ConsumerWidget {
               child: WavySeekBar(
                 position: position,
                 total: duration,
+                markers: markers,
                 onSeek: (target) => audioService.seek(target),
               ),
             ),

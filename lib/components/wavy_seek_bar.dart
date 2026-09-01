@@ -8,6 +8,10 @@ class WavySeekBar extends StatefulWidget {
   final Duration position;
   final Duration total;
   final ValueChanged<Duration> onSeek;
+
+  /// Fractional positions (0.0–1.0) along the bar to draw markers at, e.g.
+  /// one per transcript part. Sorted lowest-to-highest.
+  final List<double> markers;
   final bool enabled;
 
   const WavySeekBar({
@@ -15,6 +19,7 @@ class WavySeekBar extends StatefulWidget {
     required this.position,
     required this.total,
     required this.onSeek,
+    this.markers = const [],
     this.enabled = true,
   });
 
@@ -103,6 +108,7 @@ class _WavySeekBarState extends State<WavySeekBar>
                     painter: _WavySeekBarPainter(
                       progress: active,
                       wavePhase: _controller.value * 2 * math.pi,
+                      markers: widget.markers,
                     ),
                   );
                 },
@@ -148,11 +154,16 @@ String formatSeekTime(Duration d) {
 class _WavySeekBarPainter extends CustomPainter {
   final double progress;
   final double wavePhase;
+  final List<double> markers;
   static const double _waveHeight = 12;
   static const double _thickness = 4;
   static const double _wavelength = 40;
 
-  _WavySeekBarPainter({required this.progress, required this.wavePhase});
+  _WavySeekBarPainter({
+    required this.progress,
+    required this.wavePhase,
+    this.markers = const [],
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -191,6 +202,21 @@ class _WavySeekBarPainter extends CustomPainter {
       ).createShader(Rect.fromLTWH(0, 0, fadeLen, size.height));
       _drawWave(canvas, size, centerY, amplitude, 0, size.width, playPaint);
       canvas.restore();
+    }
+
+    // Markers: a short vertical tick at each annotated position, spanning
+    // above and below the wave line so they read regardless of side.
+    final markerPaint = Paint()
+      ..color = mochaSubtext1
+      ..strokeWidth = 1.5
+      ..strokeCap = StrokeCap.round;
+    for (final m in markers) {
+      final mx = (m.clamp(0.0, 1.0)) * size.width;
+      canvas.drawLine(
+        Offset(mx, centerY - 10),
+        Offset(mx, centerY + 10),
+        markerPaint,
+      );
     }
 
     // Thumb
@@ -239,7 +265,14 @@ class _WavySeekBarPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _WavySeekBarPainter oldDelegate) =>
-      oldDelegate.progress != progress ||
-      oldDelegate.wavePhase != wavePhase;
+  bool shouldRepaint(covariant _WavySeekBarPainter oldDelegate) {
+    if (oldDelegate.progress != progress || oldDelegate.wavePhase != wavePhase) {
+      return true;
+    }
+    if (oldDelegate.markers.length != markers.length) return true;
+    for (var i = 0; i < markers.length; i++) {
+      if (oldDelegate.markers[i] != markers[i]) return true;
+    }
+    return false;
+  }
 }
