@@ -175,3 +175,7 @@ final selectedWhisperModelProvider = Provider<WhisperModel>((ref) {
 });
 
 final activeSegmentProvider = StateProvider<int>((ref) => -1);
+
+/// Whether the transcript list is shown in the transcript view. Hidden via a
+/// header toggle so the user can focus on audio/playback only.
+final transcriptVisibleProvider = StateProvider<bool>((ref) => true);

@@ -11,6 +11,8 @@ class TranscriptView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final transcriptVisible = ref.watch(transcriptVisibleProvider);
+
     return Scaffold(
       backgroundColor: mochaBase,
       body: Column(
@@ -23,7 +25,10 @@ class TranscriptView extends ConsumerWidget {
               ref.read(appStateProvider.notifier).reset();
             },
           ),
-          const Expanded(child: TranscriptList()),
+          if (transcriptVisible)
+            const Expanded(child: TranscriptList())
+          else
+            const Expanded(child: SizedBox.shrink()),
           const PlaybackBar(),
         ],
       ),
@@ -39,6 +44,7 @@ class _Header extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final track = ref.watch(appStateProvider.select((s) => s.track));
+    final transcriptVisible = ref.watch(transcriptVisibleProvider);
 
     return Container(
       height: 48,
@@ -65,6 +71,24 @@ class _Header extends ConsumerWidget {
                 color: mochaText,
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Tooltip(
+            message: transcriptVisible ? 'Hide transcript' : 'Show transcript',
+            child: InkWell(
+              onTap: () => ref.read(transcriptVisibleProvider.notifier).state =
+                  !transcriptVisible,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(
+                  transcriptVisible
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  size: 20,
+                  color: mochaSubtext0,
+                ),
               ),
             ),
           ),

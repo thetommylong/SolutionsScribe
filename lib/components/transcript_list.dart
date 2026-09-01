@@ -74,22 +74,24 @@ class _TranscriptListState extends ConsumerState<TranscriptList> {
   }
 
   void _followActive(int activeIndex) {
+    if (activeIndex < 0) return;
     if (_lastActiveIndex == activeIndex) return;
-    _lastActiveIndex = activeIndex;
 
-    final key = _segmentKeys[activeIndex];
-    if (key == null || key.currentContext == null) return;
-
+    // Run after this build completes so the GlobalKey for the newly-active
+    // segment has been created by the ListView's itemBuilder. If we check
+    // synchronously here, the key doesn't exist yet and we bail (this is why
+    // auto-scroll appeared broken).
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final context = key.currentContext;
-      if (context != null && mounted) {
-        Scrollable.ensureVisible(
-          context,
-          alignment: 0.5,
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeOut,
-        );
-      }
+      if (!mounted) return;
+      final context = _segmentKeys[activeIndex]?.currentContext;
+      if (context == null) return;
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+      _lastActiveIndex = activeIndex;
     });
   }
 
