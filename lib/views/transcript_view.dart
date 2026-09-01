@@ -58,9 +58,18 @@ class _Header extends ConsumerWidget {
           InkWell(
             onTap: onBack,
             borderRadius: BorderRadius.circular(8),
-            child: const Padding(
-              padding: EdgeInsets.all(6),
-              child: Icon(Icons.arrow_back, size: 20, color: mochaSubtext0),
+            child: Tooltip(
+              message: 'Back to upload',
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Semantics(
+                  label: 'Back',
+                  button: true,
+                  excludeSemantics: true,
+                  child:
+                      Icon(Icons.arrow_back, size: 20, color: mochaSubtext0),
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -82,12 +91,19 @@ class _Header extends ConsumerWidget {
               borderRadius: BorderRadius.circular(8),
               child: Padding(
                 padding: const EdgeInsets.all(6),
-                child: Icon(
-                  transcriptVisible
-                      ? Icons.visibility_off_outlined
-                      : Icons.visibility_outlined,
-                  size: 20,
-                  color: mochaSubtext0,
+                child: Semantics(
+                  label: transcriptVisible
+                      ? 'Hide transcript'
+                      : 'Show transcript',
+                  button: true,
+                  excludeSemantics: true,
+                  child: Icon(
+                    transcriptVisible
+                        ? Icons.visibility_off_outlined
+                        : Icons.visibility_outlined,
+                    size: 20,
+                    color: mochaSubtext0,
+                  ),
                 ),
               ),
             ),

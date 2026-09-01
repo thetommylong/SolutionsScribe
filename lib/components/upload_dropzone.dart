@@ -73,23 +73,30 @@ class _UploadDropzoneState extends ConsumerState<UploadDropzone> {
           onTap: _state == DropzoneState.processing
               ? null
               : _pickFile,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            height: 260,
-            width: 640,
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: _state == DropzoneState.dragOver
-                  ? mochaTeal.withValues(alpha: 0.10)
-                  : _state == DropzoneState.hover
-                      ? mochaSky.withValues(alpha: 0.05)
-                      : mochaSurface0,
-              borderRadius: BorderRadius.circular(20),
-              border: _state == DropzoneState.dragOver
-                  ? Border.all(color: mochaTeal, width: 2)
-                  : null,
+          child: Semantics(
+            label: _state == DropzoneState.processing
+                ? null
+                : 'Choose an audio file',
+            button: _state != DropzoneState.processing,
+            container: true,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              height: 260,
+              width: 640,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: _state == DropzoneState.dragOver
+                    ? mochaTeal.withValues(alpha: 0.10)
+                    : _state == DropzoneState.hover
+                        ? mochaSky.withValues(alpha: 0.05)
+                        : mochaSurface0,
+                borderRadius: BorderRadius.circular(20),
+                border: _state == DropzoneState.dragOver
+                    ? Border.all(color: mochaTeal, width: 2)
+                    : null,
+              ),
+              child: _buildContent(),
             ),
-            child: _buildContent(),
           ),
         ),
       ),
@@ -121,39 +128,43 @@ class _UploadDropzoneState extends ConsumerState<UploadDropzone> {
         final phase = appState.phase ?? 'Processing…';
         final percent = appState.percent;
         final scheme = Theme.of(context).colorScheme;
-        return Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              width: 48,
-              height: 48,
-              child: CircularProgressIndicator(
-                value: percent > 0 ? percent / 100 : null,
-                strokeWidth: 4,
-                color: scheme.primary,
-                backgroundColor: scheme.surfaceContainerHighest,
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (percent > 0)
-              Text(
-                '$percent%',
-                style: TextStyle(
+        return Semantics(
+          liveRegion: true,
+          label: phase,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 48,
+                height: 48,
+                child: CircularProgressIndicator(
+                  value: percent > 0 ? percent / 100 : null,
+                  strokeWidth: 4,
                   color: scheme.primary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+                  backgroundColor: scheme.surfaceContainerHighest,
                 ),
               ),
-            const SizedBox(height: 8),
-            Text(
-              phase,
-              style: const TextStyle(
-                color: mochaText,
-                fontSize: 16,
-                fontWeight: FontWeight.w400,
+              const SizedBox(height: 12),
+              if (percent > 0)
+                Text(
+                  '$percent%',
+                  style: TextStyle(
+                    color: scheme.primary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              const SizedBox(height: 8),
+              Text(
+                phase,
+                style: const TextStyle(
+                  color: mochaText,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w400,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         );
       case DropzoneState.error:
         final errorMessage =

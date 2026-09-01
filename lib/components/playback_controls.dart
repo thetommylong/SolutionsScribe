@@ -32,6 +32,7 @@ class _PlaybackControlsState extends State<PlaybackControls> {
   Widget _buildButton({
     required String key,
     required IconData icon,
+    required String tooltip,
     required VoidCallback onTap,
   }) {
     final state = _states[key]!;
@@ -54,26 +55,34 @@ class _PlaybackControlsState extends State<PlaybackControls> {
         onTapCancel: () =>
             setState(() => _states[key] = ControlState.default_),
         onTap: onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 100),
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color: state == ControlState.default_
-                ? Colors.transparent
-                : mochaMauve.withValues(alpha: state == ControlState.clicked
-                    ? 0.7
-                    : 1.0),
-            borderRadius: BorderRadius.circular(
-              state == ControlState.clicked ? 12 : 8,
+        child: Tooltip(
+          message: tooltip,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 100),
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: state == ControlState.default_
+                  ? Colors.transparent
+                  : mochaMauve.withValues(alpha: state == ControlState.clicked
+                      ? 0.7
+                      : 1.0),
+              borderRadius: BorderRadius.circular(
+                state == ControlState.clicked ? 12 : 8,
+              ),
             ),
-          ),
-          child: Icon(
-            icon,
-            size: 20,
-            color: state == ControlState.default_
-                ? mochaText
-                : mochaBase,
+            child: Semantics(
+              label: tooltip,
+              button: true,
+              excludeSemantics: true,
+              child: Icon(
+                icon,
+                size: 20,
+                color: state == ControlState.default_
+                    ? mochaText
+                    : mochaBase,
+              ),
+            ),
           ),
         ),
       ),
@@ -88,18 +97,21 @@ class _PlaybackControlsState extends State<PlaybackControls> {
         _buildButton(
           key: 'back',
           icon: Icons.fast_rewind_rounded,
+          tooltip: 'Skip back',
           onTap: widget.onSkipBack,
         ),
         const SizedBox(width: 4),
         _buildButton(
           key: 'play',
           icon: widget.isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+          tooltip: widget.isPlaying ? 'Pause' : 'Play',
           onTap: widget.onPlayPause,
         ),
         const SizedBox(width: 4),
         _buildButton(
           key: 'forward',
           icon: Icons.fast_forward_rounded,
+          tooltip: 'Skip forward',
           onTap: widget.onSkipForward,
         ),
       ],

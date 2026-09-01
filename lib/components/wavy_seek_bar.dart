@@ -81,7 +81,23 @@ class _WavySeekBarState extends State<WavySeekBar>
       builder: (context, constraints) {
         _width = constraints.maxWidth;
 
-        return GestureDetector(
+        return Semantics(
+          slider: widget.enabled,
+          value: formatSeekTime(_durationForValue(active)),
+          label: 'Seek position',
+          increasedValue: formatSeekTime(_durationForValue(
+              (active + 0.05).clamp(0.0, 1.0))),
+          decreasedValue: formatSeekTime(_durationForValue(
+              (active - 0.05).clamp(0.0, 1.0))),
+          onIncrease: widget.enabled
+              ? () => widget.onSeek(_durationForValue((active + 0.05)
+                  .clamp(0.0, 1.0)))
+              : null,
+          onDecrease: widget.enabled
+              ? () => widget.onSeek(_durationForValue((active - 0.05)
+                  .clamp(0.0, 1.0)))
+              : null,
+          child: GestureDetector(
           onTapDown: widget.enabled
               ? (details) => _seekAt(details.localPosition.dx)
               : null,
@@ -139,7 +155,8 @@ class _WavySeekBarState extends State<WavySeekBar>
               ),
             ],
           ),
-        );
+        ),
+      );
       },
     );
   }

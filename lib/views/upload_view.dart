@@ -52,19 +52,27 @@ class _SettingsButtonState extends State<_SettingsButton> {
       onExit: (_) => setState(() => _hovered = false),
       child: GestureDetector(
         onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 100),
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: _hovered
-                ? mochaMauve.withValues(alpha: 0.12)
-                : Colors.transparent,
-            shape: BoxShape.circle,
-          ),
-          child: Icon(
-            Icons.settings_rounded,
-            size: 22,
-            color: _hovered ? mochaMauve : mochaSubtext0,
+        child: Tooltip(
+          message: 'Settings',
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 100),
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: _hovered
+                  ? mochaMauve.withValues(alpha: 0.12)
+                  : Colors.transparent,
+              shape: BoxShape.circle,
+            ),
+            child: Semantics(
+              label: 'Settings',
+              button: true,
+              excludeSemantics: true,
+              child: Icon(
+                Icons.settings_rounded,
+                size: 22,
+                color: _hovered ? mochaMauve : mochaSubtext0,
+              ),
+            ),
           ),
         ),
       ),

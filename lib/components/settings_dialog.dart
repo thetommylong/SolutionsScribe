@@ -200,19 +200,27 @@ class _StepButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: onTap == null ? null : mochaSurface1,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Icon(
-          icon,
-          size: 18,
-          color: onTap == null ? mochaOverlay0 : mochaSubtext1,
+    return Semantics(
+      button: onTap != null,
+      label: icon == Icons.add_rounded ? 'Increase' : 'Decrease',
+      enabled: onTap != null,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: Tooltip(
+          message: icon == Icons.add_rounded ? 'Increase' : 'Decrease',
+          child: Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: onTap == null ? null : mochaSurface1,
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Icon(
+              icon,
+              size: 18,
+              color: onTap == null ? mochaOverlay0 : mochaSubtext1,
+            ),
+          ),
         ),
       ),
     );
