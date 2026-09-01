@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/app_state_provider.dart';
@@ -71,8 +72,8 @@ class SettingsDialog extends ConsumerWidget {
             const Divider(color: mochaSurface1),
             _SectionLabel('Playback'),
             _SettingRow(
-              label: 'Skip back (seconds)',
-              trailing: _Stepper(
+              label: 'Skip back',
+              trailing: _DurationField(
                 value: skipBack,
                 min: 1,
                 max: 120,
@@ -81,8 +82,8 @@ class SettingsDialog extends ConsumerWidget {
               ),
             ),
             _SettingRow(
-              label: 'Skip forward (seconds)',
-              trailing: _Stepper(
+              label: 'Skip forward',
+              trailing: _DurationField(
                 value: skipForward,
                 min: 1,
                 max: 120,
@@ -153,13 +154,13 @@ class _SettingRow extends StatelessWidget {
   }
 }
 
-class _Stepper extends StatelessWidget {
+class _DurationField extends StatefulWidget {
   final int value;
   final int min;
   final int max;
   final ValueChanged<int> onChanged;
 
-  const _Stepper({
+  const _DurationField({
     required this.value,
     required this.min,
     required this.max,
@@ -167,61 +168,79 @@ class _Stepper extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _StepButton(
-          icon: Icons.remove_rounded,
-          onTap: value > min ? () => onChanged(value - 1) : null,
-        ),
-        SizedBox(
-          width: 32,
-          child: Text(
-            '$value',
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: mochaText, fontSize: 14),
-          ),
-        ),
-        _StepButton(
-          icon: Icons.add_rounded,
-          onTap: value < max ? () => onChanged(value + 1) : null,
-        ),
-      ],
-    );
-  }
+  State<_DurationField> createState() => _DurationFieldState();
 }
 
-class _StepButton extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback? onTap;
+class _DurationFieldState extends State<_DurationField> {
+  late final TextEditingController _controller;
+  String? _errorText;
 
-  const _StepButton({required this.icon, required this.onTap});
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: '${widget.value}');
+  }
+
+  @override
+  void didUpdateWidget(covariant _DurationField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Sync the field when the value changes from outside (e.g. a shortcut),
+    // but only if the user isn't mid-edit.
+    if (oldWidget.value != widget.value &&
+        _controller.text != '${widget.value}') {
+      _controller.text = '${widget.value}';
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _commit() {
+    final parsed = int.tryParse(_controller.text.trim());
+    if (parsed == null) {
+      setState(() => _errorText = 'Invalid');
+      return;
+    }
+    final clamped = parsed.clamp(widget.min, widget.max);
+    setState(() {
+      _controller.text = '$clamped';
+      _errorText = null;
+    });
+    if (clamped != widget.value) widget.onChanged(clamped);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Semantics(
-      button: onTap != null,
-      label: icon == Icons.add_rounded ? 'Increase' : 'Decrease',
-      enabled: onTap != null,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(6),
-        child: Tooltip(
-          message: icon == Icons.add_rounded ? 'Increase' : 'Decrease',
-          child: Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: onTap == null ? null : mochaSurface1,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Icon(
-              icon,
-              size: 18,
-              color: onTap == null ? mochaOverlay0 : mochaSubtext1,
-            ),
+    return SizedBox(
+      width: 96,
+      child: TextField(
+        controller: _controller,
+        keyboardType: TextInputType.number,
+        textAlign: TextAlign.right,
+        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+        style: const TextStyle(color: mochaText, fontSize: 14),
+        decoration: InputDecoration(
+          isDense: true,
+          suffixText: 's',
+          suffixStyle: const TextStyle(color: mochaSubtext0, fontSize: 13),
+          errorText: _errorText,
+          errorStyle: const TextStyle(fontSize: 10),
+          filled: true,
+          fillColor: mochaSurface1,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(6),
+            borderSide: BorderSide.none,
           ),
         ),
+        onSubmitted: (_) {
+          _commit();
+          FocusScope.of(context).unfocus();
+        },
+        onEditingComplete: _commit,
       ),
     );
   }

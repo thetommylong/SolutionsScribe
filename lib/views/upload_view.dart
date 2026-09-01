@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../components/settings_dialog.dart';
 import '../components/upload_dropzone.dart';
+import '../providers/app_state_provider.dart';
 import '../theme/app_theme.dart';
 
 class UploadView extends ConsumerWidget {
@@ -10,23 +12,31 @@ class UploadView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Scaffold(
-      backgroundColor: mochaBase,
-      body: Stack(
-        children: [
-          const Center(child: UploadDropzone()),
-          // Settings cog, top-right corner.
-          Positioned(
-            top: 12,
-            right: 12,
-            child: _SettingsButton(
-              onTap: () => showDialog<void>(
-                context: context,
-                builder: (_) => const SettingsDialog(),
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyO, control: true): () =>
+            ref.read(appStateProvider.notifier).openFileDialog(),
+        const SingleActivator(LogicalKeyboardKey.keyO, meta: true): () =>
+            ref.read(appStateProvider.notifier).openFileDialog(),
+      },
+      child: Scaffold(
+        backgroundColor: mochaBase,
+        body: Stack(
+          children: [
+            const Center(child: UploadDropzone()),
+            // Settings cog, top-right corner.
+            Positioned(
+              top: 12,
+              right: 12,
+              child: _SettingsButton(
+                onTap: () => showDialog<void>(
+                  context: context,
+                  builder: (_) => const SettingsDialog(),
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -12,6 +12,10 @@ class TranscriptView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final transcriptVisible = ref.watch(transcriptVisibleProvider);
+    final isTranscribing =
+        ref.watch(appStateProvider.select((s) => s.isTranscribing));
+    final transcribeError =
+        ref.watch(appStateProvider.select((s) => s.transcribeError));
 
     return Scaffold(
       backgroundColor: mochaBase,
@@ -25,11 +29,68 @@ class TranscriptView extends ConsumerWidget {
               ref.read(appStateProvider.notifier).reset();
             },
           ),
+          if (isTranscribing)
+            const _StatusBanner(
+              message: 'Transcribing… this may take a moment',
+              color: mochaMauve,
+              showSpinner: true,
+            ),
+          if (transcribeError != null)
+            _StatusBanner(
+              message: 'Transcription failed: $transcribeError',
+              color: mochaRed,
+            ),
           if (transcriptVisible)
             const Expanded(child: TranscriptList())
           else
             const Expanded(child: SizedBox.shrink()),
           const PlaybackBar(),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusBanner extends StatelessWidget {
+  final String message;
+  final Color color;
+  final bool showSpinner;
+
+  const _StatusBanner({
+    required this.message,
+    required this.color,
+    this.showSpinner = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: color.withValues(alpha: 0.12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        children: [
+          if (showSpinner) ...[
+            SizedBox(
+              width: 10,
+              height: 10,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: color,
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                color: color,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
         ],
       ),
     );

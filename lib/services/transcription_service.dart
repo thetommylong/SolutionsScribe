@@ -85,10 +85,18 @@ class TranscriptionService {
       );
     }
 
-    final rawSegments = result.transcription.segments ?? const [];
+    var rawSegments = result.transcription.segments ?? const [];
     if (rawSegments.isEmpty) {
       await _cleanupTempFiles();
       throw TranscriptionException('No segments found in audio');
+    }
+
+    // Word-level timestamps yield one segment per word, which the transcript
+    // view renders as one tile per word ("one word per line"). Merge them back
+    // into sentence chunks so each tile reads as a flowing sentence. Segments
+    // are treated as words whenever splitOnWord is on.
+    if (splitOnWord) {
+      rawSegments = groupWordSegments(rawSegments);
     }
 
     // The temp WAV must stay alive through the speaker pass, so cleanup only
@@ -260,6 +268,58 @@ class TranscriptionService {
   ) {
     final gap = current.fromTs - prev.toTs;
     return gap > const Duration(seconds: 2);
+  }
+
+  /// Merge per-word whisper segments into sentence-sized chunks. Each word is
+  /// its own [WhisperTranscribeSegment] when `splitOnWord` is on; this groups
+  /// them so the transcript reads as sentences. A new group starts on a
+  /// sentence-ending word (`.`, `!`, `?`), after a small pause (>300ms), or
+  /// once a group reaches [maxWords] as a safety cap.
+  static List<WhisperTranscribeSegment> groupWordSegments(
+    List<WhisperTranscribeSegment> words,
+  ) {
+    const maxWords = 20;
+    const maxPause = Duration(milliseconds: 300);
+
+    final groups = <WhisperTranscribeSegment>[];
+    var buffer = <WhisperTranscribeSegment>[];
+
+    void flush() {
+      if (buffer.isEmpty) return;
+      final first = buffer.first;
+      final last = buffer.last;
+      groups.add(WhisperTranscribeSegment(
+        text: buffer.map((w) => w.text.trim()).where((t) => t.isNotEmpty).join(' '),
+        fromTs: first.fromTs,
+        toTs: last.toTs,
+      ));
+      buffer = [];
+    }
+
+    for (final word in words) {
+      final text = word.text.trim();
+      if (text.isEmpty) continue;
+      final isSentenceEnd =
+          text.endsWith('.') || text.endsWith('!') || text.endsWith('?');
+
+      // Flush the current group before adding this word if it would exceed the
+      // cap or if there's a significant pause since the previous word. The
+      // sentence boundary is handled after adding, so the punctuation word
+      // stays with the group it completes.
+      if (buffer.isNotEmpty &&
+          (buffer.length >= maxWords ||
+              word.fromTs - buffer.last.toTs > maxPause)) {
+        flush();
+      }
+
+      buffer.add(word);
+      if (isSentenceEnd) {
+        flush();
+      }
+    }
+    flush();
+
+    return groups;
   }
 
   /// Copy/convert [sourcePath] into a 16 kHz mono WAV inside the OS temp

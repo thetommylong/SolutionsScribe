@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'components/app_shortcuts.dart';
 import 'providers/app_state_provider.dart';
 import 'theme/app_theme.dart';
 import 'views/transcript_view.dart';
@@ -27,13 +28,16 @@ class AppShell extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final stage = ref.watch(appStateProvider.select((s) => s.stage));
 
+    Widget view;
     switch (stage) {
       case AppStage.ready:
-        return const TranscriptView();
+        view = const TranscriptView();
       case AppStage.idle:
       case AppStage.processing:
       case AppStage.error:
-        return const UploadView();
+        view = const UploadView();
     }
+
+    return AppShortcuts(child: view);
   }
 }

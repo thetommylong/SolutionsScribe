@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:whisper_ggml/whisper_ggml.dart';
@@ -8,6 +10,7 @@ import '../models/audio_track.dart';
 import '../models/transcript_segment.dart';
 import '../services/audio_player_service.dart';
 import '../services/transcription_service.dart';
+import '../utils/audio_file_utils.dart';
 import 'settings_provider.dart';
 
 final transcriptionServiceProvider = Provider(
@@ -46,6 +49,16 @@ class AppState {
   final String? errorMessage;
   final int percent;
   final String? phase;
+
+  /// True while a transcription is running in the background after the user
+  /// has already reached the transcript/playback screen.
+  final bool isTranscribing;
+
+  /// Non-null when a background transcription finished with an error, so the
+  /// (still-open) playback screen can surface it without dropping back to the
+  /// upload view.
+  final String? transcribeError;
+
   final List<TranscriptPart> parts;
   final AudioTrack? track;
 
@@ -54,6 +67,8 @@ class AppState {
     this.errorMessage,
     this.percent = 0,
     this.phase,
+    this.isTranscribing = false,
+    this.transcribeError,
     this.parts = const [],
     this.track,
   });
@@ -63,6 +78,8 @@ class AppState {
     String? errorMessage,
     int? percent,
     String? phase,
+    bool? isTranscribing,
+    String? transcribeError,
     List<TranscriptPart>? parts,
     AudioTrack? track,
   }) {
@@ -71,6 +88,8 @@ class AppState {
       errorMessage: errorMessage ?? this.errorMessage,
       percent: percent ?? this.percent,
       phase: phase ?? this.phase,
+      isTranscribing: isTranscribing ?? this.isTranscribing,
+      transcribeError: transcribeError ?? this.transcribeError,
       parts: parts ?? this.parts,
       track: track ?? this.track,
     );
@@ -84,6 +103,21 @@ class AppStateNotifier extends StateNotifier<AppState> {
 
   void reset() => state = const AppState();
 
+  /// Opens the system file picker and, if an audio file is chosen, processes
+  /// it. Shared by the dropzone click handler and the Ctrl/Cmd+O shortcut.
+  Future<void> openFileDialog() async {
+    final result = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: supportedAudioExtensions.toList(),
+    );
+    if (result.isNotEmpty) {
+      processFile(result.first.path!, fileNameFromPath(result.first.path!));
+    }
+  }
+
+  /// Runs the full transcription pipeline. The user reaches the transcript /
+  /// playback screen immediately; the transcription result is applied to
+  /// `parts` when it finishes in the background.
   Future<void> processFile(String filePath, String fileName) async {
     final modelName = _ref.read(selectedModelProvider);
     final model = _ref.read(selectedWhisperModelProvider);
@@ -95,12 +129,56 @@ class AppStateNotifier extends StateNotifier<AppState> {
         'size=${sizeMb.toStringAsFixed(1)} MB model=$modelName');
     final startWall = DateTime.now();
 
+    // Enter the ready state immediately so the transcript/playback screen
+    // appears without waiting on (potentially slow) model download + inference.
+    // Transcription continues in the background and populates `parts`.
+    Duration loadedDuration = Duration.zero;
+    try {
+      final audioService = _ref.read(audioPlayerServiceProvider);
+      await audioService.loadFile(filePath);
+      loadedDuration = audioService.duration;
+    } catch (e) {
+      // just_audio has no first-party Linux implementation, so loading the
+      // audio may fail on a Linux dev host. Playback may be unavailable, but
+      // the transcript screen still shows and populates.
+      debugPrint('[SolutionsScribe] audio load failed '
+          '(playback unavailable): $e');
+    }
+
     state = state.copyWith(
-      stage: AppStage.processing,
+      stage: AppStage.ready,
       percent: 0,
-      phase: 'Preparing…',
+      phase: null,
+      isTranscribing: true,
+      transcribeError: null,
+      parts: const [],
+      track: AudioTrack(
+        filePath: filePath,
+        title: fileName,
+        subtitle: 'Local audio',
+        duration: loadedDuration,
+      ),
     );
 
+    // Kick off transcription in the background; don't block the UI on it.
+    unawaited(_runTranscription(
+      filePath,
+      fileName,
+      model,
+      splitOnWord,
+      startWall,
+      loadedDuration,
+    ));
+  }
+
+  Future<void> _runTranscription(
+    String filePath,
+    String fileName,
+    WhisperModel model,
+    bool splitOnWord,
+    DateTime startWall,
+    Duration loadedDuration,
+  ) async {
     try {
       final service = _ref.read(transcriptionServiceProvider);
 
@@ -121,35 +199,24 @@ class AppStateNotifier extends StateNotifier<AppState> {
           '${DateTime.now().difference(startWall).inSeconds}s '
           '(${result.parts.length} parts)');
 
-      // just_audio has no first-party Linux implementation, so loading the
-      // audio may fail on a Linux dev host. Transcription is the core feature;
-      // proceed to the ready state regardless and only log the failure.
-      try {
-        final audioService = _ref.read(audioPlayerServiceProvider);
-        await audioService.loadFile(filePath);
-      } catch (e) {
-        debugPrint('[SolutionsScribe] audio load failed '
-            '(playback unavailable): $e');
-      }
+      // Prefer the real audio duration from the player; fall back to the
+      // transcription's total duration if playback wasn't loaded (e.g. Linux).
+      final duration = loadedDuration > Duration.zero
+          ? loadedDuration
+          : result.totalDuration;
 
       state = state.copyWith(
-        stage: AppStage.ready,
-        percent: 100,
-        phase: null,
+        isTranscribing: false,
+        transcribeError: null,
         parts: result.parts,
-        track: AudioTrack(
-          filePath: filePath,
-          title: fileName,
-          subtitle: 'Local audio',
-          duration: result.totalDuration,
-        ),
+        track: state.track?.copyWith(duration: duration),
       );
     } catch (e) {
-      debugPrint('[SolutionsScribe] processFile FAILED after '
+      debugPrint('[SolutionsScribe] transcription FAILED after '
           '${DateTime.now().difference(startWall).inSeconds}s: $e');
       state = state.copyWith(
-        stage: AppStage.error,
-        errorMessage: e.toString(),
+        isTranscribing: false,
+        transcribeError: e.toString(),
       );
     }
   }
