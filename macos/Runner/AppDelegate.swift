@@ -34,7 +34,8 @@ class AppDelegate: FlutterAppDelegate {
   }
 
   private func forwardFiles(_ files: [String]) {
-    if mainFlutterWindow.contentViewController is FlutterViewController {
+    guard let window = mainFlutterWindow else { return }
+    if window.contentViewController is FlutterViewController {
       sendFiles(files)
     } else {
       pendingFiles.append(contentsOf: files)
@@ -44,7 +45,8 @@ class AppDelegate: FlutterAppDelegate {
   /// Delivers each file to the Dart side's FileOpenService method channel.
   private func sendFiles(_ files: [String]) {
     guard
-      let controller = mainFlutterWindow.contentViewController as? FlutterViewController
+      let window = mainFlutterWindow,
+      let controller = window.contentViewController as? FlutterViewController
     else {
       return
     }
