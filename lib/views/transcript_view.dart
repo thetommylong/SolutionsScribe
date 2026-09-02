@@ -61,14 +61,14 @@ class _TranscribingBanner extends ConsumerWidget {
     final percent = ref.watch(appStateProvider.select((s) => s.percent));
 
     final label = phase ?? 'Transcribing…';
-    // Same determinate/indeterminate idiom as the upload dropzone's progress
-    // ring: a value is a 0-1 progress fraction when we have one.
+    // Always render the ring as an indeterminate spinner so it animates
+    // continuously (like the playback wave) rather than sitting frozen between
+    // the coarse progress callbacks that transcription/speaker phases emit.
     final ring = SizedBox(
       width: 12,
       height: 12,
-      child: CircularProgressIndicator(
+      child: const CircularProgressIndicator(
         strokeWidth: 2,
-        value: percent > 0 ? percent / 100 : null,
         color: mochaMauve,
       ),
     );
