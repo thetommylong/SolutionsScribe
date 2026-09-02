@@ -40,8 +40,6 @@ class TranscriptView extends ConsumerWidget {
               ref.read(appStateProvider.notifier).reset();
             },
           ),
-          if (isTranscribing)
-            const _TranscribingBanner(),
           if (transcribeError != null)
             _StatusBanner(
               message: 'Transcription failed: $transcribeError',
@@ -61,96 +59,60 @@ class TranscriptView extends ConsumerWidget {
   }
 }
 
-/// Live progress banner shown while transcription runs in the background. The
-/// phase/percent come from the transcription service's callbacks and update in
-/// place. Progress is conveyed by a thin horizontal bar that fills in per
-/// percent; when a phase reports no granular progress (e.g. whisper inference,
-/// which only emits coarse callbacks) the bar animates as an indeterminate
-/// loop so it never sits frozen. The banner is announced to screen readers via
-/// a live region.
-class _TranscribingBanner extends ConsumerWidget {
-  const _TranscribingBanner();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final phase = ref.watch(appStateProvider.select((s) => s.phase));
-    final percent = ref.watch(appStateProvider.select((s) => s.percent));
-
-    final label = phase ?? 'Transcribing…';
-    // Determinately filled whenever we have a real, in-progress fraction;
-    // indeterminate (animated) otherwise so the bar keeps moving even when a
-    // phase reports no granular progress.
-    final filled = percent > 0 && percent < 100 ? percent / 100 : null;
-    final percentText = percent > 0
-        ? Text(
-            '$percent%',
-            style: const TextStyle(
-              color: mochaText,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          )
-        : null;
-
-    return Semantics(
-      liveRegion: true,
-      label: label,
-      child: Container(
-        width: double.infinity,
-        color: mochaMauve.withValues(alpha: 0.10),
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    label,
-                    style: const TextStyle(
-                      color: mochaText,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-                if (percentText != null) ...[
-                  const SizedBox(width: 8),
-                  percentText,
-                ],
-              ],
-            ),
-            const SizedBox(height: 8),
-            ClipRRect(
-              borderRadius: const BorderRadius.vertical(
-                bottom: Radius.circular(6),
-              ),
-              child: LinearProgressIndicator(
-                minHeight: 4,
-                value: filled,
-                color: mochaMauve,
-                backgroundColor: mochaMauve.withValues(alpha: 0.20),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 /// Full-area state shown in the transcript region while the whole file is
 /// being transcribed and there is no transcript yet. Makes the "working in
-/// the background" pass legible (phase + live progress) instead of leaving a
-/// blank void above an empty list.
-class _TranscribingPlaceholder extends ConsumerWidget {
+/// the background" pass legible instead of leaving a blank void. Progress and
+/// a live time-remaining estimate are derived from the percent callback and
+/// the pass's start time; a 1s timer ticks the estimate without touching
+/// global state on every frame.
+class _TranscribingPlaceholder extends ConsumerStatefulWidget {
   const _TranscribingPlaceholder();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_TranscribingPlaceholder> createState() =>
+      _TranscribingPlaceholderState();
+}
+
+class _TranscribingPlaceholderState
+    extends ConsumerState<_TranscribingPlaceholder> {
+  Timer? _ticker;
+
+  /// Rolling (elapsedSeconds, percent) samples used to smooth the rate so the
+  /// ETA doesn't jump around when whisper phases advance lumpily. Kept small
+  /// (a ~15s window) for a responsive yet stable estimate.
+  final _Samples _samples = _Samples(maxLength: 15);
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final s = ref.read(appStateProvider);
+      _samples.record(_secondsSince(s.startedAt, DateTime.now()), s.percent);
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  double _secondsSince(DateTime? start, DateTime now) =>
+      start == null ? 0 : now.difference(start).inMilliseconds / 1000.0;
+
+  @override
+  Widget build(BuildContext context) {
     final phase = ref.watch(appStateProvider.select((s) => s.phase));
     final percent = ref.watch(appStateProvider.select((s) => s.percent));
+    final startedAt = ref.watch(appStateProvider.select((s) => s.startedAt));
+
+    // Keep the sample window seeded with the very first datum so an estimate
+    // is reachable as soon as progress begins, even before the first tick.
+    if (_samples.isEmpty && startedAt != null) {
+      _samples.record(_secondsSince(startedAt, DateTime.now()), percent);
+    }
 
     final label = phase ?? 'Transcribing…';
     final filled = percent > 0 && percent < 100 ? percent / 100 : null;
@@ -179,20 +141,74 @@ class _TranscribingPlaceholder extends ConsumerWidget {
               backgroundColor: mochaMauve.withValues(alpha: 0.20),
             ),
           ),
-          if (percent > 0) ...[
-            const SizedBox(height: 8),
-            Text(
-              '$percent%',
-              style: const TextStyle(
-                color: mochaSubtext0,
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
+          const SizedBox(height: 8),
+          Text(
+            _statusLine(percent, startedAt),
+            style: const TextStyle(
+              color: mochaSubtext0,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
             ),
-          ],
+          ),
         ],
       ),
     );
+  }
+
+  /// Builds the "NN% · ~Xm left" line under the bar. Until enough progress has
+  /// accrued to fit a stable rate there is nothing to extrapolate from, so it
+  /// shows only "Estimating…" beside the percent. Once a pass finishes the
+  /// placeholder is unmounted and this widget returns an empty line.
+  String _statusLine(int percent, DateTime? startedAt) {
+    final percentText = percent > 0 ? '$percent%' : '0%';
+    if (percent <= 0 || percent >= 100 || startedAt == null) {
+      return percent <= 0 ? '' : percentText;
+    }
+    // Average the rate over the rolling window (slope between its span's
+    // endpoints) rather than the instantaneous jump, which is lumpy.
+    final rate = _samples.smoothedRate();
+    if (rate == null || rate <= 0) {
+      return '$percentText · ~Estimating…';
+    }
+    final remaining = 100 - percent;
+    final etaSeconds = remaining / rate;
+    final etaText = _formatDuration(Duration(seconds: etaSeconds.round()));
+    return '$percentText · ~$etaText left';
+  }
+
+  static String _formatDuration(Duration d) {
+    if (d.inSeconds < 45) return '${d.inSeconds < 1 ? 1 : d.inSeconds}s';
+    if (d.inMinutes > 60) return '${d.inMinutes ~/ 60}h ${d.inMinutes % 60}m';
+    return '${d.inMinutes}m';
+  }
+}
+
+/// Bounded FIFO of (elapsedSeconds, percent) progress samples. The smoothed
+/// rate is the slope across the oldest->newest sample in the rolling window, so
+/// brief stalls or bursts are damped instead of dominating the estimate.
+class _Samples {
+  final int maxLength;
+  final List<(double, int)> _items = [];
+
+  _Samples({required this.maxLength});
+
+  bool get isEmpty => _items.isEmpty;
+
+  void record(double elapsed, int percent) {
+    _items.add((elapsed, percent));
+    if (_items.length > maxLength) _items.removeAt(0);
+  }
+
+  /// Percent-per-second slope across the oldest->newest sample, or null if there
+  /// are not enough distinct points to be meaningful.
+  double? smoothedRate() {
+    if (_items.length < 2) return null;
+    final first = _items.first;
+    final last = _items.last;
+    final dt = last.$1 - first.$1;
+    if (dt <= 0) return null;
+    final rate = (last.$2 - first.$2) / dt;
+    return rate;
   }
 }
 

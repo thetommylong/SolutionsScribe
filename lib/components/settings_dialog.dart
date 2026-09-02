@@ -18,6 +18,9 @@ class SettingsDialog extends ConsumerWidget {
     final splitOnWord = ref.watch(splitOnWordProvider);
     final skipBack = ref.watch(skipBackSecondsProvider);
     final skipForward = ref.watch(skipForwardSecondsProvider);
+    final partGap = ref.watch(partGapSecondsProvider);
+    final showTranscriptByDefault =
+        ref.watch(showTranscriptByDefaultProvider);
 
     return AlertDialog(
       backgroundColor: mochaSurface0,
@@ -69,6 +72,24 @@ class SettingsDialog extends ConsumerWidget {
                   ),
                 ),
               ),
+            _SettingRow(
+              label: 'Part gap',
+              trailing: _GapControl(
+                value: partGap,
+                onChanged: (v) =>
+                    ref.read(partGapSecondsProvider.notifier).state = v,
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Silence (in seconds) that splits the transcript into parts.',
+                  style: TextStyle(color: mochaOverlay0, fontSize: 12),
+                ),
+              ),
+            ),
             const Divider(color: mochaSurface1),
             _SectionLabel('Playback'),
             _SettingRow(
@@ -89,6 +110,28 @@ class SettingsDialog extends ConsumerWidget {
                 max: 120,
                 onChanged: (v) =>
                     ref.read(skipForwardSecondsProvider.notifier).state = v,
+              ),
+            ),
+            const Divider(color: mochaSurface1),
+            _SectionLabel('Transcript'),
+            _SettingRow(
+              label: 'Show transcript on open',
+              trailing: Switch(
+                value: showTranscriptByDefault,
+                onChanged: (v) =>
+                    ref.read(showTranscriptByDefaultProvider.notifier).state = v,
+                activeTrackColor: mochaMauve,
+                activeThumbColor: mochaBase,
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Off by default; the list appears once you toggle it.',
+                  style: TextStyle(color: mochaOverlay0, fontSize: 12),
+                ),
               ),
             ),
           ],
@@ -242,6 +285,131 @@ class _DurationFieldState extends State<_DurationField> {
         },
         onEditingComplete: _commit,
       ),
+    );
+  }
+}
+
+/// A bounded 0.5-5.0s slider plus a small manual-entry field living next to
+/// it. The slider and the text field stay in sync; typing an out-of-range or
+/// invalid value clamps/silently ignores it.
+class _GapControl extends StatefulWidget {
+  final double value;
+  final ValueChanged<double> onChanged;
+
+  const _GapControl({required this.value, required this.onChanged});
+
+  @override
+  State<_GapControl> createState() => _GapControlState();
+}
+
+class _GapControlState extends State<_GapControl> {
+  static const double _min = 0.5;
+  static const double _max = 5.0;
+
+  late final TextEditingController _controller;
+  bool _editing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: _format(widget.value));
+  }
+
+  @override
+  void didUpdateWidget(covariant _GapControl oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Reflect external slider / value changes, but don't clobber the field
+    // while the user is mid-edit.
+    if (!_editing && oldWidget.value != widget.value) {
+      _controller.text = _format(widget.value);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  String _format(double v) => v == v.roundToDouble()
+      ? v.toInt().toString()
+      : v.toStringAsFixed(1);
+
+  void _commit() {
+    final parsed = double.tryParse(_controller.text.trim());
+    if (parsed == null) {
+      // Invalid input: revert to the current value rather than showing an error
+      // state, since the slider still carries the truth.
+      _controller.text = _format(widget.value);
+      return;
+    }
+    final clamped = parsed.clamp(_min, _max).toDouble();
+    setState(() => _controller.text = _format(clamped));
+    if (clamped != widget.value) widget.onChanged(clamped);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 160,
+          child: Slider(
+            value: widget.value.clamp(_min, _max).toDouble(),
+            min: _min,
+            max: _max,
+            divisions: 9, // 0.5s steps across 0.5-5.0
+            activeColor: mochaMauve,
+            inactiveColor: mochaSurface1,
+            label: '${widget.value.toStringAsFixed(1)}s',
+            onChanged: (v) => widget.onChanged(v),
+          ),
+        ),
+        SizedBox(
+          width: 72,
+          child: TextField(
+            controller: _controller,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            textAlign: TextAlign.right,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+            ],
+            style: const TextStyle(color: mochaText, fontSize: 14),
+            decoration: InputDecoration(
+              isDense: true,
+              suffixText: 's',
+              suffixStyle: const TextStyle(color: mochaSubtext0, fontSize: 13),
+              filled: true,
+              fillColor: mochaSurface1,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(6),
+                borderSide: BorderSide.none,
+              ),
+            ),
+            onChanged: (_) {
+              // The user is actively typing: freeze the text field so the
+              // slider-driven didUpdateWidget doesn't clobber it mid-edit.
+              setState(() => _editing = true);
+            },
+            onSubmitted: (_) {
+              setState(() => _editing = false);
+              _commit();
+              FocusScope.of(context).unfocus();
+            },
+            onEditingComplete: () {
+              FocusScope.of(context).unfocus();
+              _commit();
+            },
+            onTapOutside: (_) {
+              setState(() => _editing = false);
+              _commit();
+            },
+          ),
+        ),
+      ],
     );
   }
 }

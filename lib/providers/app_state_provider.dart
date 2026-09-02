@@ -50,6 +50,10 @@ class AppState {
   final int percent;
   final String? phase;
 
+  /// Wall-clock time the current transcription pass began; used to estimate a
+  /// time-remaining figure from progress. Null when no pass is running.
+  final DateTime? startedAt;
+
   /// True while a transcription is running in the background after the user
   /// has already reached the transcript/playback screen.
   final bool isTranscribing;
@@ -67,6 +71,7 @@ class AppState {
     this.errorMessage,
     this.percent = 0,
     this.phase,
+    this.startedAt,
     this.isTranscribing = false,
     this.transcribeError,
     this.parts = const [],
@@ -78,6 +83,7 @@ class AppState {
     String? errorMessage,
     int? percent,
     String? phase,
+    DateTime? startedAt,
     bool? isTranscribing,
     String? transcribeError,
     List<TranscriptPart>? parts,
@@ -88,6 +94,7 @@ class AppState {
       errorMessage: errorMessage ?? this.errorMessage,
       percent: percent ?? this.percent,
       phase: phase ?? this.phase,
+      startedAt: startedAt ?? this.startedAt,
       isTranscribing: isTranscribing ?? this.isTranscribing,
       transcribeError: transcribeError ?? this.transcribeError,
       parts: parts ?? this.parts,
@@ -122,6 +129,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
     final modelName = _ref.read(selectedModelProvider);
     final model = _ref.read(selectedWhisperModelProvider);
     final splitOnWord = _ref.read(splitOnWordProvider);
+    final partGapSeconds = _ref.read(partGapSecondsProvider);
     final sizeMb = File(filePath).existsSync()
         ? File(filePath).lengthSync() / (1024 * 1024)
         : 0.0;
@@ -149,6 +157,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
       stage: AppStage.ready,
       percent: 0,
       phase: null,
+      startedAt: startWall,
       isTranscribing: true,
       transcribeError: null,
       parts: const [],
@@ -160,12 +169,18 @@ class AppStateNotifier extends StateNotifier<AppState> {
       ),
     );
 
+    // Apply the "show transcript on open" setting to this file: reset any stale
+    // visibility from a previous file's header toggle.
+    _ref.read(transcriptVisibleProvider.notifier).state =
+        _ref.read(showTranscriptByDefaultProvider);
+
     // Kick off transcription in the background; don't block the UI on it.
     unawaited(_runTranscription(
       filePath,
       fileName,
       model,
       splitOnWord,
+      partGapSeconds,
       startWall,
       loadedDuration,
     ));
@@ -176,6 +191,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
     String fileName,
     WhisperModel model,
     bool splitOnWord,
+    double partGapSeconds,
     DateTime startWall,
     Duration loadedDuration,
   ) async {
@@ -186,6 +202,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
         audioPath: filePath,
         model: model,
         splitOnWord: splitOnWord,
+        partGapSeconds: partGapSeconds,
         onPhase: (phase) {
           debugPrint('[SolutionsScribe] phase: $phase');
           state = state.copyWith(phase: phase);
@@ -227,15 +244,6 @@ final appStateProvider =
   return AppStateNotifier(ref);
 });
 
-const availableModels = <String>[
-  'tiny',
-  'base',
-  'small',
-  'medium',
-];
-
-final selectedModelProvider = StateProvider<String>((ref) => 'base');
-
 final selectedWhisperModelProvider = Provider<WhisperModel>((ref) {
   final name = ref.watch(selectedModelProvider);
   return ref.read(transcriptionServiceProvider).modelFromString(name);
@@ -244,5 +252,9 @@ final selectedWhisperModelProvider = Provider<WhisperModel>((ref) {
 final activeSegmentProvider = StateProvider<int>((ref) => -1);
 
 /// Whether the transcript list is shown in the transcript view. Hidden via a
-/// header toggle so the user can focus on audio/playback only.
-final transcriptVisibleProvider = StateProvider<bool>((ref) => true);
+/// header toggle so the user can focus on audio/playback only. Initialises from
+/// the "show transcript on open" setting and is re-applied each time a file
+/// opens (see [AppStateNotifier.processFile]).
+final transcriptVisibleProvider = StateProvider<bool>((ref) {
+  return ref.watch(showTranscriptByDefaultProvider);
+});

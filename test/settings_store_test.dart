@@ -45,4 +45,32 @@ void main() {
     final newStore = SettingsStore(supportDirOverride: tempDir.path);
     expect(await newStore.isModelAcknowledged(), isTrue);
   });
+
+  test('loadPreferences is empty before anything is saved', () async {
+    expect(await store.loadPreferences(), isEmpty);
+  });
+
+  test('savePreferences round-trips through the JSON file', () async {
+    await store.savePreferences({
+      'model': 'small',
+      'partGapSeconds': 3.5,
+      'showTranscriptByDefault': true,
+    });
+
+    // A fresh store reading the same directory sees the persisted values.
+    final reopened = SettingsStore(supportDirOverride: tempDir.path);
+    final prefs = await reopened.loadPreferences();
+    expect(prefs['model'], 'small');
+    expect(prefs['partGapSeconds'], 3.5);
+    expect(prefs['showTranscriptByDefault'], isTrue);
+  });
+
+  test('loadPreferences tolerates a corrupt settings file', () async {
+    final file = File('${tempDir.path}${Platform.pathSeparator}'
+        '${SettingsStore.settingsFileName}');
+    await file.parent.create(recursive: true);
+    await file.writeAsString('this is not json {');
+
+    expect(await store.loadPreferences(), isEmpty);
+  });
 }

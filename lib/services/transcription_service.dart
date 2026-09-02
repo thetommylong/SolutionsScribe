@@ -31,6 +31,7 @@ class TranscriptionService {
     required String audioPath,
     required WhisperModel model,
     bool splitOnWord = false,
+    double partGapSeconds = 2.0,
     void Function(int percent)? onProgress,
     void Function(String phase)? onPhase,
   }) async {
@@ -118,7 +119,11 @@ class TranscriptionService {
           'audio duration ${totalDuration.inSeconds}s');
 
       return TranscriptionResult(
-        parts: _buildParts(rawSegments, _speakerLabels(speakerIds, rawSegments.length)),
+        parts: _buildParts(
+          rawSegments,
+          _speakerLabels(speakerIds, rawSegments.length),
+          partGapSeconds,
+        ),
         totalDuration: totalDuration,
       );
     } finally {
@@ -225,15 +230,17 @@ class TranscriptionService {
   List<TranscriptPart> _buildParts(
     List<WhisperTranscribeSegment> segments,
     List<String?> speakerLabels,
+    double partGapSeconds,
   ) {
     final parts = <TranscriptPart>[];
     final currentSegments = <TranscriptSegment>[];
     var partIndex = 0;
+    final gapThreshold = Duration(milliseconds: (partGapSeconds * 1000).round());
 
     for (var i = 0; i < segments.length; i++) {
       final raw = segments[i];
 
-      if (i > 0 && _isNewPart(segments[i - 1], raw)) {
+      if (i > 0 && _isNewPart(segments[i - 1], raw, gapThreshold)) {
         if (currentSegments.isNotEmpty) {
           parts.add(TranscriptPart(
             index: partIndex++,
@@ -264,9 +271,10 @@ class TranscriptionService {
   bool _isNewPart(
     WhisperTranscribeSegment prev,
     WhisperTranscribeSegment current,
+    Duration gapThreshold,
   ) {
     final gap = current.fromTs - prev.toTs;
-    return gap > const Duration(seconds: 2);
+    return gap > gapThreshold;
   }
 
   /// Merge per-word whisper segments into sentence-sized chunks. Each word is
