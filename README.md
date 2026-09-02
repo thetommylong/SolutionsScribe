@@ -2,6 +2,9 @@
 
 Local, on-device audio transcription with speaker diarization. Turn any recording into a readable, per-speaker transcript without sending a byte to the cloud.
 
+> [!WARNING]
+> **Vibe-coded software ahead.** Proceed at your own risk!
+
 ## The Problem
 
 Meeting recordings, interviews, and voice memos pile up, but they're only useful if you can *read* them. Cloud transcribers cost money, ship your audio off-device, and rarely tell you who said what.
