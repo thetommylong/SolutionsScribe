@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:window_manager/window_manager.dart';
@@ -57,7 +59,17 @@ class WindowService {
         title: 'SolutionsScribe',
       ),
     );
+    // Wayland compositors and some window managers ignore geometry max/min
+    // hints (`GDK_HINT_MAX_SIZE` etc.), so actively re-clamp the window size
+    // whenever the user resizes it. macOS/Windows honor the window-manager
+    // hints directly; the clamp is still harmless there.
+    windowManager.addListener(_ClampListener());
   }
+
+  static Size _clampSize(Size size) => Size(
+        size.width.clamp(minWindowSize.width, maxWindowSize.width),
+        size.height.clamp(minWindowSize.height, maxWindowSize.height),
+      );
 
   /// Expands/shrinks the window to match the transcript's visibility.
   ///
@@ -91,9 +103,30 @@ class WindowService {
         ? previous.height.clamp(minWindowSize.height, maxWindowSize.height)
         : (_chromeHeight + _defaultTranscriptHeight)
             .clamp(minWindowSize.height, maxWindowSize.height);
-    // Restore the width that was recorded, or fall back to the current one.
-    final width = previous?.width ?? (await windowManager.getBounds()).width;
+    // Restore the width that was recorded, or fall back to the current one,
+    // clamped to the allowed range either way.
+    final width = (previous?.width ?? (await windowManager.getBounds()).width)
+        .clamp(minWindowSize.width, maxWindowSize.width);
     _lastSizeBeforeCollapse = null;
     await windowManager.setSize(Size(width, height), animate: true);
+  }
+}
+
+/// Re-imposes [WindowService]'s min/max bounds after the user resizes the
+/// window, covering platforms (notably Wayland) whose compositors ignore GTK
+/// geometry size hints. Only acts when the reported size is actually out of
+/// bounds, so it never loops.
+class _ClampListener with WindowListener {
+  @override
+  void onWindowResized() {
+    unawaited(_clampNow());
+  }
+
+  Future<void> _clampNow() async {
+    final bounds = await windowManager.getBounds();
+    final clamped = WindowService._clampSize(bounds.size);
+    if (clamped != bounds.size) {
+      await windowManager.setSize(clamped);
+    }
   }
 }
