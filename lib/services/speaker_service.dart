@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -6,6 +8,24 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart' as sherpa_onnx;
 
 const String _logTag = '[SolutionsScribe]';
+
+/// Sendable payload passed into the speaker-embedding background isolate.
+///
+/// All fields are plain, isolate-sendable data ([SendPort]s are inherently
+/// sendable); no closures or UI objects cross the boundary.
+class _IsolateRequest {
+  final List<({int fromMicros, int toMicros})> spanTimes;
+  final String modelPath;
+  final String wavPath;
+  final SendPort replyPort;
+
+  const _IsolateRequest({
+    required this.spanTimes,
+    required this.modelPath,
+    required this.wavPath,
+    required this.replyPort,
+  });
+}
 
 /// A time span we want an embedding for. Aligned to whisper segments.
 class SegmentSpan {
@@ -58,11 +78,109 @@ class SpeakerService {
       onPhase?.call('Identifying speakers…');
       final modelPath = await _ensureModelDownloaded(onPhase, onProgress);
 
-      await sherpa_onnx.initBindingsAsync();
+      // Run the whole embedding pass on a background isolate. The heavy
+      // sherpa `compute` FFI calls would otherwise block the UI isolate's
+      // native thread; sherpa's docs require calling `initBindings()` inside
+      // the isolate that uses it, and in Flutter that falls back to the
+      // process's loaded symbols, which is safe across isolates. Only plain
+      // data (sample counts / PCM samples / span frame bounds) crosses the
+      // boundary; all native sherpa objects live and die inside the isolate.
+      final embeddings = await _computeEmbeddingsInIsolate(
+        modelPath: modelPath,
+        wavPath: wavPath,
+        spans: spans,
+        onProgress: onProgress,
+      );
+
+      if (embeddings == null) {
+        debugPrint('$_logTag speaker: readWave returned no usable audio '
+            'for $wavPath');
+        return null;
+      }
+
+      final ids = assignSpeakers(embeddings);
+      debugPrint('$_logTag speaker: ${spans.length} segments -> '
+          '${_clusterCount(ids)} speaker(s)');
+      return ids;
+    } catch (e) {
+      debugPrint('$_logTag speaker identification failed: $e');
+      return null;
+    }
+  }
+
+  /// Compute every span's embedding inside a background isolate, returning
+  /// `null` only if the audio fails to read (all-native work stays off the UI
+  /// isolate). The return list is aligned with [spans]; individual entries may
+  /// be null when a span is too short to embed reliably.
+  ///
+  /// The isolate streams an integer progress (0–100) back to [onProgress] as
+  /// each span finishes. Because FFI bindings are per-isolate, [onProgress]
+  /// cannot be a captured closure (it would bound a non-sendable UI object);
+  /// instead we use a real isolate/ReceivePort and forward only sendable ints.
+  Future<List<Float32List?>?> _computeEmbeddingsInIsolate({
+    required String modelPath,
+    required String wavPath,
+    required List<SegmentSpan> spans,
+    void Function(int percent)? onProgress,
+  }) {
+    // Only plain, sendable data crosses the isolate boundary: the span time
+    // ranges. Frame math happens inside the isolate against the real sample
+    // rate of the decoded wave.
+    final spanTimes = [
+      for (final s in spans)
+        (fromMicros: s.from.inMicroseconds, toMicros: s.to.inMicroseconds),
+    ];
+
+    final reply = ReceivePort();
+    final error = ReceivePort();
+    final completer = Completer<List<Float32List?>?>();
+
+    Isolate.spawn(
+      _computeEmbeddingsInBackground,
+      _IsolateRequest(
+        spanTimes: spanTimes,
+        modelPath: modelPath,
+        wavPath: wavPath,
+        replyPort: reply.sendPort,
+      ),
+      onError: error.sendPort,
+      debugName: 'sherpa-speaker-embeddings',
+    );
+
+    reply.listen((message) {
+      if (message is int) {
+        // Incremental progress (0–100).
+        onProgress?.call(message);
+      } else if (message is List) {
+        completer.complete(message.cast<Float32List?>());
+      }
+    });
+
+    error.listen((message) {
+      debugPrint('$_logTag speaker isolate error: $message');
+      if (!completer.isCompleted) {
+        completer.complete(null);
+      }
+    });
+
+    return completer.future;
+  }
+
+  /// Background-isolate entrypoint for speaker embedding computation. Runs in
+  /// its own isolate entirely (fresh FFI bindings, own extractor + streams);
+  /// reports percent progress as flat ints to [replyPort] and finishes by
+  /// sending the embeddings list (or a null on read failure).
+  static void _computeEmbeddingsInBackground(_IsolateRequest request) {
+    final replyPort = request.replyPort;
+    try {
+      // FFI bindings are per-isolate: (re)initialize before touching sherpa.
+      // In Flutter this falls back to the process's loaded symbols, which is
+      // safe across isolates.
+      sherpa_onnx.initBindings();
 
       final extractor = sherpa_onnx.SpeakerEmbeddingExtractor(
         config: sherpa_onnx.SpeakerEmbeddingExtractorConfig(
-          model: modelPath,
+          model: request.modelPath,
           numThreads: 1,
           debug: false,
           provider: 'cpu',
@@ -70,61 +188,72 @@ class SpeakerService {
       );
 
       try {
-        final wave = sherpa_onnx.readWave(wavPath);
+        final wave = sherpa_onnx.readWave(request.wavPath);
         if (wave.samples.isEmpty || wave.sampleRate <= 0) {
-          debugPrint('$_logTag speaker: readWave returned empty audio for '
-              '$wavPath');
-          return null;
+          replyPort.send(null);
+          return;
         }
 
-        final total = spans.length;
+        final sr = wave.sampleRate;
+        final sampleCount = wave.samples.length;
+        final total = request.spanTimes.length;
         final embeddings = <Float32List?>[];
-        for (var i = 0; i < total; i++) {
-          embeddings.add(_embedSpan(extractor, wave, spans[i]));
-          final done = i + 1;
-          onPhase?.call('Identifying speakers… $done/$total');
-          onProgress?.call(total == 0 ? 100 : (done * 100) ~/ total);
-          // Let the event loop repaint the progress UI between native calls.
-          await Future<void>.delayed(Duration.zero);
+        for (final t in request.spanTimes) {
+          embeddings.add(_embedTimeRange(
+            extractor,
+            wave.samples,
+            sr,
+            sampleCount,
+            t.fromMicros,
+            t.toMicros,
+          ));
+          final done = embeddings.length;
+          replyPort.send(total == 0 ? 100 : (done * 100) ~/ total);
         }
-
-        final ids = assignSpeakers(embeddings);
-        debugPrint('$_logTag speaker: ${spans.length} segments -> '
-            '${_clusterCount(ids)} speaker(s)');
-        return ids;
+        replyPort.send(embeddings);
       } finally {
         extractor.free();
       }
     } catch (e) {
-      debugPrint('$_logTag speaker identification failed: $e');
-      return null;
+      debugPrint('$_logTag speaker isolate failed: $e');
+      replyPort.send(null);
     }
   }
 
-  /// Extract one embedding for [span] from [wave], or null when the span is
-  /// too short / fails to embed. [wave] is mono 16 kHz float PCM.
-  Float32List? _embedSpan(
+  /// Extract one embedding from a raw mono float PCM buffer for the sample
+  /// range covered by [fromMicros, toMicros) (in the [sampleRate] domain), or
+  /// null when the span is too short / out of range / fails to embed.
+  static Float32List? _embedTimeRange(
     sherpa_onnx.SpeakerEmbeddingExtractor extractor,
-    sherpa_onnx.WaveData wave,
-    SegmentSpan span,
+    Float32List samples,
+    int sampleRate,
+    int sampleCount,
+    int fromMicros,
+    int toMicros,
   ) {
-    final sr = wave.sampleRate;
-    final start = _clampFrame(span.from, sr, 0, wave.samples.length);
-    var end = _clampFrame(span.to, sr, start, wave.samples.length);
-    final maxFrames =
-        (maxSpanDuration.inMicroseconds * sr) ~/ Duration.microsecondsPerSecond;
+    final sr = sampleRate;
+
+    int timeToFrame(int micros) =>
+        (micros * sr) ~/ Duration.microsecondsPerSecond;
+
+    var start = timeToFrame(fromMicros).clamp(0, sampleCount);
+    var end = timeToFrame(toMicros).clamp(0, sampleCount);
+    if (end < start) end = start;
+
+    final maxFrames = (maxSpanDuration.inMicroseconds * sr) ~/
+        Duration.microsecondsPerSecond;
     end = math.min(end, start + maxFrames);
 
-    final minFrames =
-        (minSpanDuration.inMicroseconds * sr) ~/ Duration.microsecondsPerSecond;
+    final minFrames = (minSpanDuration.inMicroseconds * sr) ~/
+        Duration.microsecondsPerSecond;
     if (end - start < minFrames) {
       return null;
     }
 
-    final samples = wave.samples.sublist(start, end);
+    final segment = samples.sublist(start, end);
     final stream = extractor.createStream();
     try {
-      stream.acceptWaveform(samples: samples, sampleRate: sr);
+      stream.acceptWaveform(samples: segment, sampleRate: sr);
       stream.inputFinished();
       if (!extractor.isReady(stream)) {
         return null;
@@ -134,12 +263,6 @@ class SpeakerService {
     } finally {
       stream.free();
     }
-  }
-
-  int _clampFrame(Duration time, int sampleRate, int min, int max) {
-    final frame = (time.inMicroseconds * sampleRate) ~/
-        Duration.microsecondsPerSecond;
-    return frame.clamp(min, max).toInt();
   }
 
   /// Greedy agglomerative clustering over [embeddings] by cosine similarity.
