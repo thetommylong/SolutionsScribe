@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:solutionscribe/audio/solutions_audio_handler.dart';
 import 'package:solutionscribe/components/app_shortcuts.dart';
 import 'package:solutionscribe/components/volume_control.dart';
 import 'package:solutionscribe/providers/app_state_provider.dart';
@@ -13,6 +14,9 @@ class _FakeAudioPlayerService implements AudioPlayerService {
 
   @override
   bool get isLinux => false;
+
+  @override
+  SolutionsAudioHandler? get osHandler => null;
 
   @override
   Stream<Duration> get positionStream => const Stream.empty();

@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:media_kit/media_kit.dart' as mk;
+
+import '../audio/solutions_audio_handler.dart';
 
 /// Audio playback service.
 ///
@@ -12,19 +15,22 @@ import 'package:media_kit/media_kit.dart' as mk;
 ///    playback on some Linux setups ("Failed to create file cache"). Since
 ///    SolutionsScribe only plays local files, we drive media_kit's Player
 ///    directly with disk caching disabled.
-///  - `just_audio` on other platforms (macOS / iOS / Android / Windows),
-///    which use their native plugins.
+///  - `just_audio` on other platforms (macOS / iOS / Android / Windows), which
+///    use their native plugins. On those platforms playback is also published
+///    to the OS media session via [audio_service] so now-playing metadata and
+///    transport controls show in macOS Now Playing / Control Center and Windows
+///    System Media Transport Controls.
 class AudioPlayerService {
   final mk.Player? _mediaKit;
-  final AudioPlayer? _justAudio;
+  final SolutionsAudioHandler? _handler;
 
   AudioPlayerService()
       : _mediaKit = defaultTargetPlatform == TargetPlatform.linux
             ? AudioPlayerService._buildMediaKitPlayer()
             : null,
-        _justAudio = defaultTargetPlatform == TargetPlatform.linux
+        _handler = defaultTargetPlatform == TargetPlatform.linux
             ? null
-            : AudioPlayer();
+            : _buildOsHandler();
 
   static mk.Player _buildMediaKitPlayer() {
     mk.MediaKit.ensureInitialized();
@@ -37,11 +43,31 @@ class AudioPlayerService {
     );
   }
 
+  /// On non-Linux platforms playback runs through a [SolutionsAudioHandler],
+  /// which owns the `just_audio` player and publishes to the OS media session.
+  static SolutionsAudioHandler _buildOsHandler() {
+    final handler = SolutionsAudioHandler();
+    // Bind audio_service to the handler's player / media session. We must
+    // tolerate this being called on any non-Linux desktop target.
+    try {
+      AudioService.init(builder: () => handler);
+    } catch (e) {
+      debugPrint('[SolutionsScribe] audio_service init failed: $e');
+    }
+    return handler;
+  }
+
   bool get isLinux => _mediaKit != null;
+
+  /// The OS-published handler, or null on Linux (media_kit has no audio_service
+  /// integration here). Used by the UI/provider layer to update now-playing
+  /// metadata once a track is loaded.
+  SolutionsAudioHandler? get osHandler => _handler;
 
   StreamingBackend get _player {
     final mp = _mediaKit;
-    return mp != null ? MediaKitStreaming(mp) : JustAudioStreaming(_justAudio!);
+    if (mp != null) return MediaKitStreaming(mp);
+    return HandlerStreaming(_handler!);
   }
 
   Stream<Duration> get positionStream => _player.positionStream;
@@ -83,7 +109,7 @@ class AudioPlayerService {
 
   void dispose() {
     _mediaKit?.dispose();
-    _justAudio?.dispose();
+    _handler?.dispose();
   }
 }
 
@@ -148,50 +174,54 @@ class MediaKitStreaming implements StreamingBackend {
   Future<void> setVolume(double volume) => _player.setVolume(volume * 100);
 }
 
-class JustAudioStreaming implements StreamingBackend {
-  final AudioPlayer _player;
+/// Non-Linux backend: delegates every call to the [SolutionsAudioHandler],
+/// which owns the underlying `just_audio` player and keeps the OS media
+/// session in sync.
+class HandlerStreaming implements StreamingBackend {
+  final SolutionsAudioHandler _handler;
 
-  JustAudioStreaming(this._player);
-
-  @override
-  Stream<Duration> get positionStream => _player.positionStream;
-
-  @override
-  Stream<Duration?> get durationStream => _player.durationStream;
+  HandlerStreaming(this._handler);
 
   @override
-  Stream<bool> get playingStream => _player.playingStream;
+  Stream<Duration> get positionStream => _handler.positionStream;
 
   @override
-  Duration get position => _player.position;
+  Stream<Duration?> get durationStream => _handler.durationStream;
 
   @override
-  Duration get duration => _player.duration ?? Duration.zero;
+  Stream<bool> get playingStream => _handler.playingStream;
 
   @override
-  bool get playing => _player.playing;
+  Duration get position => _handler.position;
 
   @override
-  Future<void> loadFile(String path) => _player.setFilePath(path);
+  Duration get duration => _handler.duration;
 
   @override
-  Future<void> play() => _player.play();
+  bool get playing => _handler.playing;
 
   @override
-  Future<void> pause() => _player.pause();
+  Future<void> loadFile(String path) =>
+      _handler.loadFile(path, title: _titleFromPath(path));
 
   @override
-  Future<void> togglePlayPause() async {
-    if (_player.playing) {
-      await _player.pause();
-    } else {
-      await _player.play();
-    }
+  Future<void> play() => _handler.play();
+
+  @override
+  Future<void> pause() => _handler.pause();
+
+  @override
+  Future<void> togglePlayPause() => _handler.playPause();
+
+  @override
+  Future<void> seek(Duration position) => _handler.seek(position);
+
+  @override
+  Future<void> setVolume(double volume) => _handler.setVolume(volume);
+
+  String _titleFromPath(String path) {
+    final base = path.split(Platform.pathSeparator).last;
+    final dot = base.lastIndexOf('.');
+    return dot > 0 ? base.substring(0, dot) : base;
   }
-
-  @override
-  Future<void> seek(Duration position) => _player.seek(position);
-
-  @override
-  Future<void> setVolume(double volume) => _player.setVolume(volume);
 }

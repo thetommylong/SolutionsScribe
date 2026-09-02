@@ -42,6 +42,7 @@ dependencies:
   flutter_riverpod: ^2.6.1
   media_kit: ^1.2.6
   path_provider: ^2.1.5
+  audio_service: ^0.18.19
 
 dev_dependencies:
   flutter_test:
