@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:solutionscribe/components/app_shortcuts.dart';
+import 'package:solutionscribe/components/volume_control.dart';
 import 'package:solutionscribe/providers/app_state_provider.dart';
 import 'package:solutionscribe/providers/volume_provider.dart';
 import 'package:solutionscribe/services/audio_player_service.dart';
@@ -72,8 +73,7 @@ void main() {
     expect(fired, isTrue, reason: 'space shortcut should have fired');
   });
 
-  testWidgets('AppShortcuts arrow-down lowers volume and shows the OSD',
-      (tester) async {
+  testWidgets('AppShortcuts arrow-down lowers volume', (tester) async {
     final audio = _FakeAudioPlayerService();
     final container = ProviderContainer(overrides: [
       appStateProvider.overrideWith((ref) => _ReadyAppStateNotifier(ref)),
@@ -95,15 +95,9 @@ void main() {
 
     expect(container.read(volumeProvider), closeTo(0.9, 0.0001));
     expect(audio.lastVolume, closeTo(0.9, 0.0001));
-    expect(container.read(osdProvider), 'Volume: 90%');
-
-    // Let the OSD's auto-hide timer elapse so the test ends with no pending
-    // timers.
-    await tester.pump(const Duration(milliseconds: 1300));
   });
 
-  testWidgets('AppShortcuts arrow-up raises volume and shows the OSD',
-      (tester) async {
+  testWidgets('AppShortcuts arrow-up raises volume', (tester) async {
     final audio = _FakeAudioPlayerService();
     final container = ProviderContainer(overrides: [
       appStateProvider.overrideWith((ref) => _ReadyAppStateNotifier(ref)),
@@ -121,12 +115,28 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowUp);
     await tester.pump();
 
-    // 1.0 + 0.1 clamps at 1.0 (already at max), so no setVolume call; the OSD
-    // still confirms the action.
+    // 1.0 + 0.1 clamps at 1.0 (already at max), so no setVolume call.
     expect(container.read(volumeProvider), 1.0);
     expect(audio.lastVolume, isNull);
-    expect(container.read(osdProvider), 'Volume: 100%');
+  });
 
-    await tester.pump(const Duration(milliseconds: 1300));
+  testWidgets('VolumeControl shows the current percentage in its tooltip',
+      (tester) async {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(
+          home: Scaffold(body: Center(child: VolumeControl())),
+        ),
+      ),
+    );
+
+    final sliderWrap = find.byWidgetPredicate(
+      (w) => w is Tooltip && w.message == 'Volume 100%',
+    );
+    expect(sliderWrap, findsOneWidget);
   });
 }

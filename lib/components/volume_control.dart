@@ -4,8 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/volume_provider.dart';
 import '../theme/app_theme.dart';
 
-/// Volume icon + slider, placed in the playback bar. Icon tap toggles mute and
-/// raises the on-screen display; dragging the slider applies live (no OSD).
+/// Volume icon + slider, placed in the playback bar. Icon tap toggles mute;
+/// dragging the slider (or using ↑/↓) applies the volume live.
 class VolumeControl extends ConsumerWidget {
   const VolumeControl({super.key});
 
@@ -13,6 +13,7 @@ class VolumeControl extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final volume = ref.watch(volumeProvider);
     final muted = volume == 0.0;
+    final tooltipText = 'Volume ${(volume * 100).round()}%';
 
     final IconData icon;
     if (muted) {
@@ -46,7 +47,7 @@ class VolumeControl extends ConsumerWidget {
             ),
           ),
           Tooltip(
-            message: 'Volume',
+            message: tooltipText,
             child: SizedBox(
               width: 72,
               child: SliderTheme(
