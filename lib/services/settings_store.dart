@@ -24,12 +24,11 @@ class SettingsStore {
 
   /// Optional override of the support directory, for tests. When null the real
   /// `getApplicationSupportDirectory()` is used.
-  final String? _supportDirOverride;
+  final String? supportDirOverride;
 
-  SettingsStore({String? supportDirOverride})
-      : _supportDirOverride = supportDirOverride;
+  SettingsStore({this.supportDirOverride});
   Future<String> _supportDir() async =>
-      _supportDirOverride ?? (await getApplicationSupportDirectory()).path;
+      supportDirOverride ?? (await getApplicationSupportDirectory()).path;
 
   Future<File> _markerFile(String name) async {
     final support = await _supportDir();
