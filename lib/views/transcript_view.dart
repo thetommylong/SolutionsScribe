@@ -9,11 +9,32 @@ import '../providers/app_state_provider.dart';
 import '../services/window_service.dart';
 import '../theme/app_theme.dart';
 
-class TranscriptView extends ConsumerWidget {
+class TranscriptView extends ConsumerStatefulWidget {
   const TranscriptView({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TranscriptView> createState() => _TranscriptViewState();
+}
+
+class _TranscriptViewState extends ConsumerState<TranscriptView> {
+  @override
+  void initState() {
+    super.initState();
+    // "Resize once the media hits": size the window appropriately for the
+    // playback screen as soon as we arrive (full height when the transcript is
+    // shown, compact chrome+status when it autohides). Post-frame so the resize
+    // lands predictably after layout.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final visible = ref.read(transcriptVisibleProvider);
+      unawaited(WindowService.instance.enterTranscript(
+        transcriptVisible: visible,
+      ));
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final transcriptVisible = ref.watch(transcriptVisibleProvider);
     final isTranscribing =
         ref.watch(appStateProvider.select((s) => s.isTranscribing));
@@ -23,7 +44,7 @@ class TranscriptView extends ConsumerWidget {
         ref.watch(appStateProvider.select((s) => s.transcribeError));
 
     // Resize the window to fit when the transcript is shown/hidden, so hiding
-    // it doesn't leave a blank transcript region.
+    // it doesn't leave a blank transcript region (and sets the header chrome).
     ref.listen(transcriptVisibleProvider, (prev, next) {
       unawaited(WindowService.instance.setTranscriptVisible(next));
     });
@@ -34,10 +55,12 @@ class TranscriptView extends ConsumerWidget {
         children: [
           _Header(
             onBack: () {
-              // Stop playback before leaving the player so audio doesn't
-              // keep playing after the transcript screen closes.
+              // Stop playback before leaving the player so audio doesn't keep
+              // playing after the transcript screen closes.
               ref.read(audioPlayerServiceProvider).pause();
               ref.read(appStateProvider.notifier).reset();
+              // Back on the upload/main screen, restore a reasonable window.
+              unawaited(WindowService.instance.leaveTranscript());
             },
           ),
           if (transcribeError != null)
@@ -45,9 +68,12 @@ class TranscriptView extends ConsumerWidget {
               message: 'Transcription failed: $transcribeError',
               color: mochaRed,
             ),
+          // The transcribing status strip is ALWAYS visible while a background
+          // pass runs, regardless of the transcript hide/show toggle.
+          if (isTranscribing) const _TranscribingStrip(),
           if (transcriptVisible) ...[
             if (isTranscribing && !hasParts)
-              const Expanded(child: _TranscribingPlaceholder())
+              const Expanded(child: _TranscribingHint())
             else
               const Expanded(child: TranscriptList()),
           ] else
@@ -59,22 +85,18 @@ class TranscriptView extends ConsumerWidget {
   }
 }
 
-/// Full-area state shown in the transcript region while the whole file is
-/// being transcribed and there is no transcript yet. Makes the "working in
-/// the background" pass legible instead of leaving a blank void. Progress and
-/// a live time-remaining estimate are derived from the percent callback and
-/// the pass's start time; a 1s timer ticks the estimate without touching
-/// global state on every frame.
-class _TranscribingPlaceholder extends ConsumerStatefulWidget {
-  const _TranscribingPlaceholder();
+/// Slim, always-visible status row shown while a background transcription pass
+/// is running — independent of the transcript hide/show toggle, so the user
+/// always knows work is in progress. Carries the phase label and the single
+/// stylish progress bar with a live, smoothed time-remaining estimate.
+class _TranscribingStrip extends ConsumerStatefulWidget {
+  const _TranscribingStrip();
 
   @override
-  ConsumerState<_TranscribingPlaceholder> createState() =>
-      _TranscribingPlaceholderState();
+  ConsumerState<_TranscribingStrip> createState() => _TranscribingStripState();
 }
 
-class _TranscribingPlaceholderState
-    extends ConsumerState<_TranscribingPlaceholder> {
+class _TranscribingStripState extends ConsumerState<_TranscribingStrip> {
   Timer? _ticker;
 
   /// Rolling (elapsedSeconds, percent) samples used to smooth the rate so the
@@ -108,72 +130,83 @@ class _TranscribingPlaceholderState
     final percent = ref.watch(appStateProvider.select((s) => s.percent));
     final startedAt = ref.watch(appStateProvider.select((s) => s.startedAt));
 
-    // Keep the sample window seeded with the very first datum so an estimate
-    // is reachable as soon as progress begins, even before the first tick.
+    // Seed the sample window with the first datum so an estimate is reachable
+    // as soon as progress begins.
     if (_samples.isEmpty && startedAt != null) {
       _samples.record(_secondsSince(startedAt, DateTime.now()), percent);
     }
 
-    final label = phase ?? 'Transcribing…';
-    final filled = percent > 0 && percent < 100 ? percent / 100 : null;
-
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
+    return Container(
+      height: WindowService.stripHeight,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      decoration: const BoxDecoration(
+        color: mochaMantle,
+        border: Border(bottom: BorderSide(color: mochaSurface0, width: 1)),
+      ),
+      child: Row(
         children: [
-          const Icon(Icons.graphic_eq, size: 48, color: mochaMauve),
-          const SizedBox(height: 16),
+          const _PulsingIcon(),
+          const SizedBox(width: 12),
           Text(
-            label,
+            phase ?? 'Transcribing…',
             style: const TextStyle(
               color: mochaText,
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(height: 16),
-          SizedBox(
-            width: 320,
-            child: LinearProgressIndicator(
-              minHeight: 6,
-              value: filled,
-              color: mochaMauve,
-              backgroundColor: mochaMauve.withValues(alpha: 0.20),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _statusLine(percent, startedAt),
-            style: const TextStyle(
-              color: mochaSubtext0,
-              fontSize: 12,
+              fontSize: 13,
               fontWeight: FontWeight.w600,
             ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: _StylishProgressBar(
+              value: percent > 0 && percent < 100 ? percent / 100 : null,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '$percent%',
+                style: const TextStyle(
+                  color: mochaText,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                _etaLine(percent, startedAt),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: mochaSubtext0,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  /// Builds the "NN% · ~Xm left" line under the bar. Until enough progress has
-  /// accrued to fit a stable rate there is nothing to extrapolate from, so it
-  /// shows only "Estimating…" beside the percent. Once a pass finishes the
-  /// placeholder is unmounted and this widget returns an empty line.
-  String _statusLine(int percent, DateTime? startedAt) {
-    final percentText = percent > 0 ? '$percent%' : '0%';
+  /// Builds the ETA caption ("~Xm left" / "~Estimating…") under the percent.
+  /// Until enough progress accrues to fit a stable rate there is nothing to
+  /// extrapolate from, so it shows only "Estimating…". Once the pass finishes
+  /// the strip is unmounted.
+  String _etaLine(int percent, DateTime? startedAt) {
+    // Nothing to extrapolate from before progress starts or after it finishes.
     if (percent <= 0 || percent >= 100 || startedAt == null) {
-      return percent <= 0 ? '' : percentText;
+      return '';
     }
-    // Average the rate over the rolling window (slope between its span's
-    // endpoints) rather than the instantaneous jump, which is lumpy.
     final rate = _samples.smoothedRate();
     if (rate == null || rate <= 0) {
-      return '$percentText · ~Estimating…';
+      return '~Estimating…';
     }
     final remaining = 100 - percent;
     final etaSeconds = remaining / rate;
-    final etaText = _formatDuration(Duration(seconds: etaSeconds.round()));
-    return '$percentText · ~$etaText left';
+    return '~${_formatDuration(Duration(seconds: etaSeconds.round()))} left';
   }
 
   static String _formatDuration(Duration d) {
@@ -199,8 +232,8 @@ class _Samples {
     if (_items.length > maxLength) _items.removeAt(0);
   }
 
-  /// Percent-per-second slope across the oldest->newest sample, or null if there
-  /// are not enough distinct points to be meaningful.
+  /// Percent-per-second slope across the oldest->newest sample, or null if
+  /// there are not enough distinct points to be meaningful.
   double? smoothedRate() {
     if (_items.length < 2) return null;
     final first = _items.first;
@@ -209,6 +242,158 @@ class _Samples {
     if (dt <= 0) return null;
     final rate = (last.$2 - first.$2) / dt;
     return rate;
+  }
+}
+
+/// A gently bobbing equalizer icon that signals live transcription work.
+class _PulsingIcon extends StatefulWidget {
+  const _PulsingIcon();
+
+  @override
+  State<_PulsingIcon> createState() => _PulsingIconState();
+}
+
+class _PulsingIconState extends State<_PulsingIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 800),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween<double>(begin: 0.45, end: 1).animate(_controller),
+      child: const Icon(Icons.graphic_eq, size: 22, color: mochaMauve),
+    );
+  }
+}
+
+/// A single, decorative centered visual shown in the transcript region while a
+/// pass runs but before any parts arrive. It carries no progress bar — that
+/// lives in the always-visible [_TranscribingStrip] above — so there is never
+/// a duplicated bar; this just fills the region while it has no content.
+class _TranscribingHint extends StatelessWidget {
+  const _TranscribingHint();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.graphic_eq, size: 44, color: mochaMauve),
+          const SizedBox(height: 14),
+          Text(
+            'Building transcript…',
+            style: const TextStyle(
+              color: mochaSubtext0,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Polished linear progress bar: a rounded track with a solid accent fill and
+/// a soft left-to-right shimmer sweep. When [value] is null it renders an
+/// indeterminate shimmer (no fill segment), used before progress is known.
+class _StylishProgressBar extends StatefulWidget {
+  final double? value;
+
+  const _StylishProgressBar({this.value});
+
+  @override
+  State<_StylishProgressBar> createState() => _StylishProgressBarState();
+}
+
+class _StylishProgressBarState extends State<_StylishProgressBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _shimmer = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1500),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _shimmer.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final value = widget.value;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(4),
+      child: SizedBox(
+        height: 8,
+        child: AnimatedBuilder(
+          animation: _shimmer,
+          builder: (context, _) {
+            final t = _shimmer.value;
+            final fill = value ?? 0.0;
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                // Track.
+                ColoredBox(color: mochaSurface0),
+                // Fill.
+                FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: fill,
+                  child: const ColoredBox(color: mochaMauve),
+                ),
+                // Shimmer sweep across the whole bar for indeterminate feel.
+                if (value == null)
+                  Positioned(
+                    left: -60 + t * 120,
+                    width: 40,
+                    top: 0,
+                    bottom: 0,
+                    child: const _BarSheen(),
+                  )
+                else
+                  Positioned(
+                    left: -60 + ((t * 130) - 30),
+                    width: 40,
+                    top: 0,
+                    bottom: 0,
+                    child: const _BarSheen(),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _BarSheen extends StatelessWidget {
+  const _BarSheen();
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.white.withValues(alpha: 0.0),
+            Colors.white.withValues(alpha: 0.35),
+            Colors.white.withValues(alpha: 0.0),
+          ],
+        ),
+      ),
+    );
   }
 }
 

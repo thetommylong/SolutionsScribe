@@ -4,15 +4,19 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:window_manager/window_manager.dart';
 
-/// Owns the desktop window's size policy and handles the "auto-resize to fit
-/// content" behavior when the transcript is hidden.
+/// Owns the desktop window's size policy and the "resize to fit content"
+/// behavior across screens.
 ///
 /// On Linux / macOS / Windows the app window is constrained to
 /// [minWindowSize]..[maxWindowSize] and starts at [initialWindowSize]. The
-/// transcript view can be collapsed (see the visibility toggle in the header);
-/// when it is, the window shrinks down to just the surrounding chrome (header
-/// + playback bar) instead of leaving a blank transcript region, and expands
-/// back to its previous size when the transcript is shown again.
+/// transcript screen can have its transcript region collapsed (see the
+/// visibility toggle in the header); when it is, the window shrinks to a
+/// compact height — just the header, the always-on transcribing strip and the
+/// playback bar — instead of leaving a blank transcript region, and expands
+/// back when the transcript is shown again. The window is also resized once on
+/// entering the transcript screen (["enterTranscript"]) and back to a
+/// reasonable default when returning to the upload screen
+/// (["leaveTranscript"]).
 ///
 /// Everything is driven through `window_manager` (single source of truth). The
 /// native runners still set a default frame for platforms where window_manager
@@ -20,21 +24,37 @@ import 'package:window_manager/window_manager.dart';
 /// tightens to the bounds below at startup.
 class WindowService {
   static const Size initialWindowSize = Size(1280, 720);
-  // The minimum height is the surrounding chrome (header + playback bar) so the
-  // collapsed-transcript window can shrink all the way down to just the
-  // controls (no blank transcript region). Width stays generous for the bar.
-  static const Size minWindowSize = Size(960, _chromeHeight);
+  // Width stays generous so the playback bar and status strip have room; the
+  // minimum height covers the whole surrounding chrome (header + the always-on
+  // transcribing strip + playback bar) so the transcript-hidden window never
+  // clips the status.
+  static const Size minWindowSize = Size(960, _compactHeight);
   static const Size maxWindowSize = Size(2560, 1600);
 
-  /// Fixed chrome around the transcript: header (48) + playback bar (64).
-  static const double _chromeHeight = 48 + 64;
-  /// Vertical padding added so the collapsed window doesn't feel cramped.
-  static const double _collapsedPadding = 8;
-  /// When the transcript is visible and no explicit size was recorded, use
-  /// this content height for the transcript region.
+  /// Fixed chrome heights in the transcript screen.
+  static const double _headerHeight = 48;
+  /// The always-visible transcribing status strip (independent of the
+  /// hide/show toggle). Public so the transcript view sizes its strip to match
+  /// the window's compact-height accounting.
+  static const double stripHeight = 48;
+  /// The bottom playback bar.
+  static const double _playbackBarHeight = 64;
+  /// Vertical padding so the compact window doesn't feel cramped.
+  static const double _padding = 8;
+
+  /// Height of the transcript-hidden window: header + transcribing strip +
+  /// playback bar + padding.
+  static const double _compactHeight =
+      _headerHeight + stripHeight + _playbackBarHeight + _padding;
+  /// When the transcript is shown and no explicit size was recorded, use this
+  /// content height for the transcript region.
   static const double _defaultTranscriptHeight = 480;
 
-  Size? _lastSizeBeforeCollapse;
+  /// Reasonable full window size for the transcript screen (and the compare
+  /// point used before collapsing).
+  static const Size _transcriptSize = Size(1280, 720);
+
+  Size? _lastSizeBeforeCompact;
 
   static bool get _isSupported =>
       defaultTargetPlatform == TargetPlatform.linux ||
@@ -71,43 +91,69 @@ class WindowService {
         size.height.clamp(minWindowSize.height, maxWindowSize.height),
       );
 
-  /// Expands/shrinks the window to match the transcript's visibility.
-  ///
-  /// When [visible] is true the window returns to the size it had before the
-  /// transcript was collapsed (or to a default transcript size if none was
-  /// recorded). When false it shrinks to just the surrounding chrome so no
-  /// blank transcript region is shown.
-  Future<void> setTranscriptVisible(bool visible) async {
+  /// Called when the transcript screen mounts (a file has been opened). Makes
+  /// sure the window ends up at a sensible size for the playback screen "once
+  /// the media hits": a full transcript size when the transcript is shown, or
+  /// a compact height (header + transcribing strip + playback bar) when it is
+  /// hidden, so the window is never left at a stale/large upload layout.
+  Future<void> enterTranscript({required bool transcriptVisible}) async {
     if (!_isSupported) return;
-    if (visible) {
-      await _restore();
+    if (transcriptVisible) {
+      await _expand();
     } else {
-      await _collapse();
+      await _compact();
     }
   }
 
-  Future<void> _collapse() async {
+  /// Expands/shrinks the window to match the transcript's visibility.
+  ///
+  /// When [visible] is true the window returns to the size it had before being
+  /// compacted (or to a default transcript size if none was recorded). When
+  /// false it shrinks to the compact height — just enough for the chrome plus
+  /// the always-on transcribing strip and playback bar, so no blank transcript
+  /// region is shown and the status stays legible.
+  Future<void> setTranscriptVisible(bool visible) async {
+    if (!_isSupported) return;
+    if (visible) {
+      await _expand();
+    } else {
+      await _compact();
+    }
+  }
+
+  /// Resizes the window to a reasonable default size when returning to the
+  /// upload / main screen from the transcript screen.
+  Future<void> leaveTranscript() async {
+    if (!_isSupported) return;
+    _lastSizeBeforeCompact = null;
+    await windowManager.setSize(_transcriptSize, animate: true);
+  }
+
+  Future<void> _compact() async {
     final bounds = await windowManager.getBounds();
-    final collapsedHeight = (_chromeHeight + _collapsedPadding)
-        .clamp(minWindowSize.height, maxWindowSize.height);
-    _lastSizeBeforeCollapse = Size(bounds.width, bounds.height);
+    final compactHeight =
+        _compactHeight.clamp(minWindowSize.height, maxWindowSize.height);
+    _lastSizeBeforeCompact = Size(bounds.width, bounds.height);
     await windowManager.setSize(
-      Size(bounds.width, collapsedHeight),
+      Size(bounds.width, compactHeight),
       animate: true,
     );
   }
 
-  Future<void> _restore() async {
-    final previous = _lastSizeBeforeCollapse;
+  Future<void> _expand() async {
+    final previous = _lastSizeBeforeCompact;
     final height = previous != null
         ? previous.height.clamp(minWindowSize.height, maxWindowSize.height)
-        : (_chromeHeight + _defaultTranscriptHeight)
+        : (_headerHeight +
+                _defaultTranscriptHeight +
+                _playbackBarHeight +
+                _padding)
             .clamp(minWindowSize.height, maxWindowSize.height);
     // Restore the width that was recorded, or fall back to the current one,
     // clamped to the allowed range either way.
     final width = (previous?.width ?? (await windowManager.getBounds()).width)
         .clamp(minWindowSize.width, maxWindowSize.width);
-    _lastSizeBeforeCollapse = null;
+    _lastSizeBeforeCompact = null;
     await windowManager.setSize(Size(width, height), animate: true);
   }
 }
