@@ -90,9 +90,11 @@ jobs:
         run: flutter build macos --release
 
       - name: Package macOS app (zip)
+        # The app filename is derived from the Flutter project (solutionscribe.app),
+        # not the Xcode TARGET_NAME, so match by glob rather than hardcoding.
         run: |
           cd build/macos/Build/Products/Release
-          zip -r -X "${GITHUB_WORKSPACE}/solutionscribe-macos.zip" SolutionsScribe.app
+          zip -r -X "${GITHUB_WORKSPACE}/solutionscribe-macos.zip" *.app
 
       - uses: actions/upload-artifact@v4
         with:
