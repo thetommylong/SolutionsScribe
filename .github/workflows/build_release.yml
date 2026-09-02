@@ -8,7 +8,8 @@ on:
 
 jobs:
   # --------------------------------------------------------------------------
-  # Linux: analyze + test + build the GTK bundle.
+  # Linux: analyze + test (Dart-level validation lives only here, not repeated
+  # on the other platforms) + build the GTK bundle. Uploads the tar.gz.
   # --------------------------------------------------------------------------
   build-linux:
     runs-on: ubuntu-latest
@@ -49,14 +50,8 @@ jobs:
           name: linux-x64-bundle
           path: solutionscribe-linux-x64.tar.gz
 
-      - name: Release (Linux)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: solutionscribe-linux-x64.tar.gz
-
   # --------------------------------------------------------------------------
-  # macOS: analyze + test + build the .app.
+  # macOS: build the .app, package it as a zip, upload the zip.
   # --------------------------------------------------------------------------
   build-macos:
     runs-on: macos-latest
@@ -70,8 +65,6 @@ jobs:
           cache: true
 
       - run: flutter pub get
-      - run: dart analyze
-      - run: flutter test
 
       - name: Build macOS app
         run: flutter build macos --release
@@ -84,16 +77,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos-app
-          path: build/macos/Build/Products/Release/*.app
-
-      - name: Release (macOS)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: build/macos/Build/Products/Release/*.app
+          path: solutionscribe-macos.zip
 
   # --------------------------------------------------------------------------
-  # Windows: analyze + test + build the .exe.
+  # Windows: build the .exe, zip the runner, upload the zip.
   # --------------------------------------------------------------------------
   build-windows:
     runs-on: windows-latest
@@ -107,8 +94,6 @@ jobs:
           cache: true
 
       - run: flutter pub get
-      - run: dart analyze
-      - run: flutter test
 
       - name: Build Windows exe
         run: flutter build windows --release
@@ -123,8 +108,39 @@ jobs:
           name: windows-x64-bundle
           path: solutionscribe-windows-x64.zip
 
-      - name: Release (Windows)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
+  # --------------------------------------------------------------------------
+  # Release: runs only on a v* tag. Waits for all three builds, downloads each
+  # artifact zip, and publishes ONE release with all three files. A single
+  # call to action-gh-release avoids the "already_exists" race that happens
+  # when parallel jobs each try to create the same tag's release.
+  # --------------------------------------------------------------------------
+  release:
+    needs: [build-linux, build-macos, build-windows]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
         with:
-          files: solutionscribe-windows-x64.zip
+          name: linux-x64-bundle
+          path: artifacts/linux
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-app
+          path: artifacts/macos
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-x64-bundle
+          path: artifacts/windows
+
+      # Glob all three archives from their per-platform dirs and attach them to
+      # a single release for the tag that triggered this run.
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/linux/solutionscribe-linux-x64.tar.gz
+            artifacts/windows/solutionscribe-windows-x64.zip
+            artifacts/macos/solutionscribe-macos.zip
