@@ -1,0 +1,130 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger on version tags
+  workflow_dispatch: # Allow manual runs from the Actions tab
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Linux: analyze + test + build the GTK bundle.
+  # --------------------------------------------------------------------------
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.x' # Match the project SDK
+          cache: true
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev libstdc++-12-dev
+
+      - run: flutter pub get
+      - run: dart analyze
+      - run: flutter test
+
+      - name: Build Linux bundle
+        run: flutter build linux --release
+
+      - name: Package Linux bundle (tar.gz)
+        # GNU tar returns 1 as a warning when a bundled file's mtime changes
+        # mid-read (e.g. post-build artifacts); the archive is still complete,
+        # so only fail on a genuine fatal error (exit 2+).
+        run: |
+          cd build/linux/x64/release/bundle
+          tar -czf "${GITHUB_WORKSPACE}/solutionscribe-linux-x64.tar.gz" . \
+            || { rc=$?; [ "$rc" -eq 1 ] || exit "$rc"; }
+        working-directory: ${{ github.workspace }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64-bundle
+          path: solutionscribe-linux-x64.tar.gz
+
+      - name: Release (Linux)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: solutionscribe-linux-x64.tar.gz
+
+  # --------------------------------------------------------------------------
+  # macOS: analyze + test + build the .app.
+  # --------------------------------------------------------------------------
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.x'
+          cache: true
+
+      - run: flutter pub get
+      - run: dart analyze
+      - run: flutter test
+
+      - name: Build macOS app
+        run: flutter build macos --release
+
+      - name: Package macOS app (zip)
+        run: |
+          cd build/macos/Build/Products/Release
+          zip -r -X "${GITHUB_WORKSPACE}/solutionscribe-macos.zip" SolutionsScribe.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: build/macos/Build/Products/Release/*.app
+
+      - name: Release (macOS)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/macos/Build/Products/Release/*.app
+
+  # --------------------------------------------------------------------------
+  # Windows: analyze + test + build the .exe.
+  # --------------------------------------------------------------------------
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: '3.47.x'
+          cache: true
+
+      - run: flutter pub get
+      - run: dart analyze
+      - run: flutter test
+
+      - name: Build Windows exe
+        run: flutter build windows --release
+
+      - name: Package Windows bundle (zip)
+        shell: pwsh
+        run: |
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath solutionscribe-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-bundle
+          path: solutionscribe-windows-x64.zip
+
+      - name: Release (Windows)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: solutionscribe-windows-x64.zip
