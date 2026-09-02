@@ -8,13 +8,13 @@ Meeting recordings, interviews, and voice memos pile up, but they're only useful
 
 ## The Solution
 
-SolutionsScribe runs **Whisper locally** on your machine, transcribes in the background while you listen, and groups sentences by speaker. No account, no upload, no recurring fee — your audio never leaves your device.
+SolutionsScribe runs **Whisper locally** on your machine, transcribes your audio in one pass, and groups sentences by speaker. No account, no upload, no recurring fee — your audio never leaves your device.
 
 ## Features
 
 - 🤫 **Fully local transcription** — Whisper via `whisper_ggml`, no cloud involved
 - 🗣️ **Speaker diarization** — automatically clusters segments by who's talking
-- ⏱️ **Instant transcript screen** — gets you to playback immediately; transcription finishes in the background
+- ⏳ **Whole-file transcription with live progress** — transcribes the full file in one pass (audio doesn't need to be playing); a banner shows the phase and percentage, and the transcript appears once it's done
 - ▶️ **Built-in playback** — seek, volume, and transport controls right in the app
 - 🎛️ **OS media controls** — play/pause/seek from your keyboard or notification shade (macOS & Windows; Linux stays in-app)
 - 🪟 **Desktop-native windowing** — minimum/maximum size, collapse-to-fit when the transcript is hidden (Linux, macOS, Windows)
@@ -36,8 +36,8 @@ Grab the latest build for your platform from [Releases](https://github.com/theto
 1. **Launch SolutionsScribe**
 2. **Drop an audio file** onto the window, or open it via *Open With* / drag-onto-icon
 3. **Pick a model** (first run downloads it; larger models are more accurate, smaller are faster)
-4. **Listen while it works** — the transcript fills in as Whisper transcribes
-5. **Read your transcript** — sentences grouped by detected speaker
+4. **Wait for transcription** — the full file is transcribed in one pass; a progress banner shows the current phase and percentage
+5. **Read your transcript** — sentences grouped by detected speaker, revealed once transcription finishes
 
 ### Opening a file
 
@@ -56,6 +56,7 @@ Grab the latest build for your platform from [Releases](https://github.com/theto
 
 ## Known Limitations
 
+- Transcription is a single whole-file pass: the transcript appears all at once when it finishes, not progressively while the file plays. (Streaming/progressive output is a possible future direction.)
 - Linux uses in-app media controls rather than system MPRIS (planned).
 - Whisper accuracy varies with audio quality and accent; diarization is best-effort clustering, not speaker ID.
 - First-run model download requires an internet connection; after that it's fully offline.

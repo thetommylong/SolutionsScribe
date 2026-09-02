@@ -17,6 +17,8 @@ class TranscriptView extends ConsumerWidget {
     final transcriptVisible = ref.watch(transcriptVisibleProvider);
     final isTranscribing =
         ref.watch(appStateProvider.select((s) => s.isTranscribing));
+    final hasParts =
+        ref.watch(appStateProvider.select((s) => s.parts.isNotEmpty));
     final transcribeError =
         ref.watch(appStateProvider.select((s) => s.transcribeError));
 
@@ -45,9 +47,12 @@ class TranscriptView extends ConsumerWidget {
               message: 'Transcription failed: $transcribeError',
               color: mochaRed,
             ),
-          if (transcriptVisible)
-            const Expanded(child: TranscriptList())
-          else
+          if (transcriptVisible) ...[
+            if (isTranscribing && !hasParts)
+              const Expanded(child: _TranscribingPlaceholder())
+            else
+              const Expanded(child: TranscriptList()),
+          ] else
             const Expanded(child: SizedBox.shrink()),
           const PlaybackBar(),
         ],
@@ -130,6 +135,62 @@ class _TranscribingBanner extends ConsumerWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Full-area state shown in the transcript region while the whole file is
+/// being transcribed and there is no transcript yet. Makes the "working in
+/// the background" pass legible (phase + live progress) instead of leaving a
+/// blank void above an empty list.
+class _TranscribingPlaceholder extends ConsumerWidget {
+  const _TranscribingPlaceholder();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final phase = ref.watch(appStateProvider.select((s) => s.phase));
+    final percent = ref.watch(appStateProvider.select((s) => s.percent));
+
+    final label = phase ?? 'Transcribing…';
+    final filled = percent > 0 && percent < 100 ? percent / 100 : null;
+
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.graphic_eq, size: 48, color: mochaMauve),
+          const SizedBox(height: 16),
+          Text(
+            label,
+            style: const TextStyle(
+              color: mochaText,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: 320,
+            child: LinearProgressIndicator(
+              minHeight: 6,
+              value: filled,
+              color: mochaMauve,
+              backgroundColor: mochaMauve.withValues(alpha: 0.20),
+            ),
+          ),
+          if (percent > 0) ...[
+            const SizedBox(height: 8),
+            Text(
+              '$percent%',
+              style: const TextStyle(
+                color: mochaSubtext0,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
