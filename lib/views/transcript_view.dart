@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../components/playback_bar.dart';
 import '../components/transcript_list.dart';
 import '../providers/app_state_provider.dart';
+import '../services/window_service.dart';
 import '../theme/app_theme.dart';
 
 class TranscriptView extends ConsumerWidget {
@@ -16,6 +19,12 @@ class TranscriptView extends ConsumerWidget {
         ref.watch(appStateProvider.select((s) => s.isTranscribing));
     final transcribeError =
         ref.watch(appStateProvider.select((s) => s.transcribeError));
+
+    // Resize the window to fit when the transcript is shown/hidden, so hiding
+    // it doesn't leave a blank transcript region.
+    ref.listen(transcriptVisibleProvider, (prev, next) {
+      unawaited(WindowService.instance.setTranscriptVisible(next));
+    });
 
     return Scaffold(
       backgroundColor: mochaBase,
