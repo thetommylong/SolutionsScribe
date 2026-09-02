@@ -6,5 +6,9 @@ bool isSupportedAudioFile(String path) {
 }
 
 String fileNameFromPath(String path) {
-  return path.split('/').last;
+  // Handle both POSIX and Windows separators.
+  final lastSlash = path.lastIndexOf('/');
+  final lastBackslash = path.lastIndexOf('\\');
+  final idx = lastSlash > lastBackslash ? lastSlash : lastBackslash;
+  return idx >= 0 ? path.substring(idx + 1) : path;
 }
