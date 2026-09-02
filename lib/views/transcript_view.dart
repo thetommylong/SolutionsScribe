@@ -48,10 +48,12 @@ class TranscriptView extends ConsumerWidget {
 }
 
 /// Live progress banner shown while transcription runs in the background. The
-/// phase/percent come from the transcription service's callbacks and update
-/// in place; progress is conveyed by the determinate ring + percent label
-/// (never baked into the phase string). The banner is announced to screen
-/// readers via a live region.
+/// phase/percent come from the transcription service's callbacks and update in
+/// place. Progress is conveyed by a thin horizontal bar that fills in per
+/// percent; when a phase reports no granular progress (e.g. whisper inference,
+/// which only emits coarse callbacks) the bar animates as an indeterminate
+/// loop so it never sits frozen. The banner is announced to screen readers via
+/// a live region.
 class _TranscribingBanner extends ConsumerWidget {
   const _TranscribingBanner();
 
@@ -61,22 +63,15 @@ class _TranscribingBanner extends ConsumerWidget {
     final percent = ref.watch(appStateProvider.select((s) => s.percent));
 
     final label = phase ?? 'Transcribing…';
-    // Always render the ring as an indeterminate spinner so it animates
-    // continuously (like the playback wave) rather than sitting frozen between
-    // the coarse progress callbacks that transcription/speaker phases emit.
-    final ring = SizedBox(
-      width: 12,
-      height: 12,
-      child: const CircularProgressIndicator(
-        strokeWidth: 2,
-        color: mochaMauve,
-      ),
-    );
+    // Determinately filled whenever we have a real, in-progress fraction;
+    // indeterminate (animated) otherwise so the bar keeps moving even when a
+    // phase reports no granular progress.
+    final filled = percent > 0 && percent < 100 ? percent / 100 : null;
     final percentText = percent > 0
         ? Text(
             '$percent%',
             style: const TextStyle(
-              color: mochaMauve,
+              color: mochaText,
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -86,11 +81,46 @@ class _TranscribingBanner extends ConsumerWidget {
     return Semantics(
       liveRegion: true,
       label: label,
-      child: _StatusBanner(
-        message: label,
-        color: mochaMauve,
-        leading: ring,
-        trailing: percentText,
+      child: Container(
+        width: double.infinity,
+        color: mochaMauve.withValues(alpha: 0.10),
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      color: mochaText,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                if (percentText != null) ...[
+                  const SizedBox(width: 8),
+                  percentText,
+                ],
+              ],
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: const BorderRadius.vertical(
+                bottom: Radius.circular(6),
+              ),
+              child: LinearProgressIndicator(
+                minHeight: 4,
+                value: filled,
+                color: mochaMauve,
+                backgroundColor: mochaMauve.withValues(alpha: 0.20),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -99,14 +129,10 @@ class _TranscribingBanner extends ConsumerWidget {
 class _StatusBanner extends StatelessWidget {
   final String message;
   final Color color;
-  final Widget? leading;
-  final Widget? trailing;
 
   const _StatusBanner({
     required this.message,
     required this.color,
-    this.leading,
-    this.trailing,
   });
 
   @override
@@ -117,10 +143,6 @@ class _StatusBanner extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Row(
         children: [
-          if (leading != null) ...[
-            leading!,
-            const SizedBox(width: 8),
-          ],
           Expanded(
             child: Text(
               message,
@@ -131,10 +153,6 @@ class _StatusBanner extends StatelessWidget {
               ),
             ),
           ),
-          if (trailing != null) ...[
-            const SizedBox(width: 8),
-            trailing!,
-          ],
         ],
       ),
     );
